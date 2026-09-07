@@ -1,0 +1,14 @@
+{
+  "name": "diamond-notebook",
+  "version": "2.1.2",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:web": "esbuild app/src/main/assets/web/entry.js --bundle --target=chrome61 --outfile=app/src/main/assets/web/app.bundle.js",
+    "test": "node --test tests/*.test.js",
+    "preview": "node tools/serve.js"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.5"
+  }
+}

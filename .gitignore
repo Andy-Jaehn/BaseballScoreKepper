@@ -1,0 +1,18 @@
+.build-tools/
+.gradle/
+local.properties
+**/build/
+node_modules/
+*.iml
+.idea/
+*.jks
+*.keystore
+artifacts/
+
+# Non-source materials
+docs/
+tests/
+tools/
+README.md
+*.pdf
+*.md
