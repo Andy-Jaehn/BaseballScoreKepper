@@ -63,4 +63,4 @@ In the "Players" tab, select a year and game format (baseball or softball) to vi
 
 In "Game History", tap "Export JSON by Year" to select and back up completed games. Tap "Import Games JSON" to restore records: duplicate games are skipped automatically, missing players are registered and flagged via prompt, and imported records are fully integrated into career stats.
 
-The application runs entirely offline and saves changes in real time. If the app closes unexpectedly, unfinished games resume automatically upon relaunch.
+## The application runs entirely offline and saves changes in real time. If the app closes unexpectedly, unfinished games resume automatically upon relaunch.
