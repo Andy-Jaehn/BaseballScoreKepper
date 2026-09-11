@@ -1,6 +1,6 @@
 {
   "name": "diamond-notebook",
-  "version": "2.1.2",
+  "version": "2.3.3",
   "private": true,
   "type": "module",
   "scripts": {

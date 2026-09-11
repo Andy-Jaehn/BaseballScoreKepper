@@ -1,6 +1,10 @@
+import {specialMenu,specialDialog,handleSpecial} from './special-ui.js';
+import { throwingPathLabel } from './throwing-path.js';
+import {recordSheets,plateRecords,lineupRows,substitutionRows} from './plate-records.js';
+let logIndex=null, subMode="defense";
 import {gameYear,years,exportArchive,importArchive,downloadJson} from './archive.js';
 import {officialFields,rulingDialog,ejectDialog,boxScore} from './season-ui.js';
-import { canUndo, advanceLimit, recordCount, confirmCount, cancelCount, stageRuling } from "./engine.js";
+import { settleContact, canUndo, advanceLimit, recordCount, confirmCount, cancelCount, stageRuling } from "./engine.js";
 import { migrateRoster, validatePlayer, normalizeName } from "./roster.js";
 import {
   matchView,
@@ -9,9 +13,11 @@ import {
   pitchLog,
   score as matchScore,
 } from "./match-ui.js";
-import { BATTING, FIELDING, PITCHING, statSheets, teamIds } from "./statistics.js";
+import { statLabel, BATTING, FIELDING, PITCHING, statSheets, teamIds } from "./statistics.js";
 import {
   POSITIONS,
+  lineupPositions,
+  isDefender,
   clone,
   uid,
   emptyStats,
@@ -102,7 +108,7 @@ function header(title, menu = "") {
   return `<div class="top">${btn("‹", "home", "", "ghost fit")}<strong>${title}</strong>${menu || ''}</div>`;
 }
 function table(ids, stats, keys) {
-  return `<div class="tablewrap"><table><thead><tr><th>球员</th>${keys.map((k) => `<th>${k}</th>`).join("")}</tr></thead><tbody>${ids
+  return `<div class="tablewrap"><table><thead><tr><th>球员</th>${keys.map((k) => `<th>${statLabel(k)}</th>`).join("")}</tr></thead><tbody>${ids
     .map((id) => {
       const s = stats[id] || rates(emptyStats());
       return `<tr><td>${esc(name(id))}</td>${keys.map((k) => `<td>${["OPS", "AVG", "OBP", "SLG", "WHIP", "FPCT", "ERA", "K/9"].includes(k) ? s[k].toFixed(3) : (s[k] ?? 0)}</td>`).join("")}</tr>`;
@@ -128,7 +134,7 @@ function statsSections(ids, stats) {
   );
 }
 function home() {
-  return `${header("钻石记分")}<section class="hero"><div class="eyebrow">DIAMOND NOTEBOOK</div><h1>专注比赛。<br>记下每一个瞬间。</h1><p>从第一球到最后一个出局，<br>你的球场记录簿。</p><div class="mark">◇</div></section>${db.active ? `<div class="card row"><div><b>有一场比赛正在进行</b><p class="muted">所有投球与未完成步骤已保存</p></div>${btn("继续记录", "resume", "", "primary fit")}</div>` : ""}<div class="grid">${btn("◉<b>球员</b><span>注册 · 统计 · 导出</span>", "players", "", "homebtn")}${btn("⚾<b>开始棒球比赛</b><span>标准逐球记分</span>", "setup", 'data-sport="baseball"', "homebtn primary")}${btn("◇<b>开始垒球比赛</b><span>慢投 · 1–1 起始球数</span>", "setup", 'data-sport="softball"', "homebtn")}${btn("▤<b>记录查看</b><span>赛后回顾 · 全部投球</span>", "history", "", "homebtn")}</div>`;
+  return `${header("钻石记分", btn("软件作者", "author", "", "ghost fit"))}<section class="hero"><div class="eyebrow">DIAMOND NOTEBOOK</div><h1>专注比赛。<br>记下每一个瞬间。</h1><p>从第一球到最后一个出局，<br>你的球场记录簿。</p><div class="mark">◇</div></section>${db.active ? `<div class="card row"><div><b>有一场比赛正在进行</b><p class="muted">所有投球与未完成步骤已保存</p></div>${btn("继续记录", "resume", "", "primary fit")}</div>` : ""}<div class="grid">${btn("◉<b>球员</b><span>注册 · 统计 · 导出</span>", "players", "", "homebtn")}${btn("⚾<b>开始棒球比赛</b><span>标准逐球记分</span>", "setup", 'data-sport="baseball"', "homebtn primary")}${btn("◇<b>开始垒球比赛</b><span>慢投 · 1–1 起始球数</span>", "setup", 'data-sport="softball"', "homebtn")}${btn("▤<b>记录查看</b><span>赛后回顾 · 全部投球</span>", "history", "", "homebtn")}</div>`;
 }
 function players() {
   const matches = db.players.filter((p) => !p.deleted && normalizeName(p.name).includes(normalizeName(playerQuery))),
@@ -148,9 +154,9 @@ function editPlayer(id) {
 function ask(message) {
   return new Promise((resolve) => {
     dialog(
-      "<h2>请确认</h2><p>" +
+      '<div class="dialog-body"><h2>请确认</h2><p>' +
         esc(message) +
-        '</p><div class="row"><button id="askNo">取消</button><button class="primary" id="askYes">确认</button></div>',
+        '</p></div><div class="dialog-actions row"><button id="askNo">取消</button><button class="primary" id="askYes">确认</button></div>',
     );
     const d = $("dialog");
     let done = false;
@@ -170,6 +176,7 @@ function dialog(html) {
   $("dialog")?.remove();
   const d = document.createElement("dialog");
   d.innerHTML = html;
+  if(d.querySelector('.dialog-body'))d.classList.add('fixed-dialog');
   document.body.append(d);
   d.showModal();
 }
@@ -178,8 +185,9 @@ function setup() {
   const d = db.setup;
   if(!d){page=db.active?'game':'home';return db.active?record():home();}
   return (
-    header("组队 · " + sportName(d.sport)) +
+    header("组队 · " + sportName(d.sport)) + (d.sport === "softball" ? '<p class="muted">增额球员：加入球员后选择增额球员，参与打序、不占守备位置。守备满员后新增球员自动设为增额球员。</p>' : "") +
     officialFields(d,db.players,esc) +
+    '<section class="card"><h3>比赛环境（可选）</h3>'+[['temperature','温度（℃）'],['weather','天气'],['location','地点']].map(([key,label])=>'<label>'+label+'<input data-environment="'+key+'" maxlength="100" value="'+esc(d[key]||'')+'" placeholder="可不填写"></label>').join('')+'</section>'+
     '<p class="muted">按住 ≡ 拖动打序 · L 左打 / R 右打 / S 左右开弓</p>' +
     d.teams
       .map(
@@ -187,10 +195,7 @@ function setup() {
           `<section class="card compact-team"><div class="row"><b class="fit">${i ? "主队" : "客队"}</b><input aria-label="${i ? "主" : "客"}队名称" data-team-name="${i}" value="${esc(t.name)}" maxlength="30"></div><div data-lineup="${i}">${t.lineup
             .map(
               (p, j) =>
-                `<div class="lineup" data-team="${i}" data-index="${j}"><div class="handle" data-drag="${i}:${j}" aria-label="拖动打序">≡</div><div class="clip"><b>${j + 1}. ${esc(name(p.id))}</b> <span class="hand">${db.players.find((x) => x.id === p.id)?.bats || "—"}</span></div><select aria-label="${esc(name(p.id))}守备位置" data-position="${i}:${j}">${POSITIONS.slice(
-                  0,
-                  d.sport === "baseball" ? 9 : 10,
-                )
+                `<div class="lineup" data-team="${i}" data-index="${j}"><div class="handle" data-drag="${i}:${j}" aria-label="拖动打序">≡</div><div class="clip"><b>${j + 1}. ${esc(name(p.id))}</b> <span class="hand">${db.players.find((x) => x.id === p.id)?.bats || "—"}</span></div><select aria-label="${esc(name(p.id))}守备位置" data-position="${i}:${j}">${lineupPositions(d.sport)
                   .map(
                     (pos) =>
                       `<option ${p.pos === pos ? "selected" : ""}>${pos}</option>`,
@@ -212,6 +217,7 @@ function setup() {
 }
 function context(g) {
   return {
+    logIndex,
     esc,
     name,
     btn,
@@ -230,9 +236,6 @@ function record() {
     header(
       sportName(g.sport),
       '<details class="menu"><summary aria-label="比赛菜单">⋮</summary><div>' +
-        btn("触身球 HBP", "pitch", 'data-kind="hbp"') +
-        btn("故意四坏球 IBB", "pitch", 'data-kind="ibb"') +
-        btn("裁判判罚", "ruling") +
         btn("结束比赛", "end", "", "danger") +
         "</div></details>",
     ) + matchView(g, context(g))
@@ -253,6 +256,7 @@ function matchModal() {
   }
   if (page !== "game") return;
   const d = g.draft;
+  if(panel==='special'){dialog(specialMenu(g,context(g)));return;}
   if(panel==='ruling'){dialog(rulingDialog(g,context(g),db.players));return;}
   if(panel==='eject'){dialog(ejectDialog(g,context(g),db.players,ejectId));return;}
   if (panel === "sub") {
@@ -264,21 +268,18 @@ function matchModal() {
     $("dialog").addEventListener("cancel", (e) => e.preventDefault());
     return;
   }
+  if(g.specialDraft){dialog(specialDialog(g,context(g)));$('dialog').addEventListener('cancel',e=>e.preventDefault());return;}
   if (d) {
-    dialog(
-      playDialog(g, context(g)) +
-        '<div class="modal-footer">' +
-        btn("上一步", "draftBack", "", "ghost") +
-        btn("取消本球", "cancelDraft", "", "ghost") +
-        "</div>",
-    );
+    const holder=document.createElement('div');holder.innerHTML=playDialog(g,context(g));
+    const confirm=holder.querySelector('[data-action="commitContact"]');const confirmHtml=confirm?.outerHTML||'';confirm?.remove();
+    dialog('<div class="dialog-body">'+holder.innerHTML+'</div><div class="dialog-actions">'+confirmHtml+'<div class="row">'+btn('上一步','draftBack','','ghost')+btn('取消本球','cancelDraft','','ghost')+'</div></div>');
     $("dialog").addEventListener("cancel", (e) => e.preventDefault());
   }
 }
-function pickPlayer(team) {
+function pickPlayer(team,role=null) {
   dialog(
     "<h2>加入" +
-      (team ? "主队" : "客队") +
+      (role ? (role==='scorerId'?'记录者':'裁判') : (team ? "主队" : "客队")) +
       '</h2><input id="rosterSearch" placeholder="搜索球员姓名" autocomplete="off"><div id="rosterOptions" class="search-options"></div>' +
       btn("关闭", "close"),
   );
@@ -289,7 +290,7 @@ function pickPlayer(team) {
         .filter(
           (p) =>
             !p.deleted &&
-            !db.setup.teams.some((t) => t.lineup.some((x) => x.id === p.id)) &&
+            (role || !db.setup.teams.some((t) => t.lineup.some((x) => x.id === p.id))) &&
             p.name
               .toLocaleLowerCase()
               .includes(input.value.trim().toLocaleLowerCase()),
@@ -297,8 +298,8 @@ function pickPlayer(team) {
         .map((p) =>
           btn(
             esc(p.name) + " · " + p.bats + "打/" + p.throws + "投",
-            "addLine",
-            `data-team="${team}" data-id="${p.id}"`,
+            role ? "setOfficial" : "addLine",
+            `data-team="${team}" data-role="${role||''}" data-id="${p.id}"`,
             "ghost",
           ),
         )
@@ -310,21 +311,15 @@ function pickPlayer(team) {
 }
 
 function subPanel(s) {
-  return `<div class="card"><h2>守备换人 / 换位</h2><p class="muted">仅操作 ${esc(s.teams[1 - s.side].name)}，替补继承原打序。当前球已开始时，换上的投手从下一投球承担责任。</p><label>场上球员</label><select id="subout">${s.teams[1 - s.side].lineup.map((p, i) => `<option value="${i}">${p.pos} · ${esc(name(p.id))}</option>`).join("")}</select><label>换入注册球员</label><select id="subin"><option value="">选择替补…</option>${db.players
-    .filter(
-      (p) =>
-        !p.deleted && !s.teams.some((t) => t.lineup.some((x) => x.id === p.id)),
-    )
-    .map((p) => `<option value="${p.id}">${esc(p.name)}</option>`)
-    .join(
-      "",
-    )}</select>${btn("确认换人", "doSub", "", "primary")}<label>或与场上球员交换守备位置</label><select id="swapin">${s.teams[1 - s.side].lineup.map((p, i) => `<option value="${i}">${p.pos} · ${esc(name(p.id))}</option>`).join("")}</select>${btn("交换位置", "doSwap", "", "primary")}${btn("返回记分", "subBack", "", "ghost")}</div>`;
+ const offense=subMode==='offense',team=offense?s.side:1-s.side,lineup=s.teams[team].lineup;
+ const slots=lineup.map((p,i)=>({...p,index:i})).filter(p=>!offense||p.id===batter(s)||s.bases.some(r=>r?.id===p.id));
+ return '<div class="dialog-body"><h2>'+(offense?'进攻换人':'守备换人 / 换位')+'</h2><p>'+esc(s.teams[team].name)+'</p><p class="muted">'+(offense?'代打继承球数；代跑继承垒位，后续得分记给代跑。替补继承原打序和守备位置。':'替补继承原打序；此前数据保留在原球员名下。')+'</p><label>替换场上球员</label><select id="subout">'+slots.map(p=>'<option value="'+p.index+'">'+(offense?(p.id===batter(s)?'当前打者':'垒上跑者')+' · ':'')+'第 '+(p.index+1)+' 棒 · '+esc(name(p.id))+'</option>').join('')+'</select><label>换入注册球员</label><select id="subin"><option value="">选择替补…</option>'+db.players.filter(p=>!p.deleted&&!s.ejected.includes(p.id)&&!s.teams.some(t=>t.lineup.some(x=>x.id===p.id))).map(p=>'<option value="'+p.id+'">'+esc(p.name)+' #'+esc(p.number||'—')+'</option>').join('')+'</select>'+(offense?'':'<label>或与场上球员交换守备位置</label><select id="swapin">'+lineup.map((p,i)=>'<option value="'+i+'">'+p.pos+' · '+esc(name(p.id))+'</option>').join('')+'</select>')+'</div><div class="dialog-actions">'+btn('确认换人','doSub','','primary wide')+(offense?'':btn('交换位置','doSwap','','wide'))+btn('返回记分','subBack','','ghost wide')+'</div>';
 }
 function recent(s) {
   return (
     '<div class="card">' +
     btn(
-      "逐球与判罚记录 · " + s.log.length + " 条",
+      "逐打席记录",
       "showLog",
       'data-id="' + (viewGame || db.active) + '"',
       "ghost wide",
@@ -334,7 +329,7 @@ function recent(s) {
 }
 function yearSelect(kind,value){return `<label class="year-select">年份<select data-year="${kind}">${[...new Set([String(new Date().getFullYear()),...years(db.games),value])].sort().reverse().map(y=>`<option ${y===value?"selected":""}>${y}</option>`).join("")}</select></label>`;}
 function history() {
-  return `${header("记录查看")}${yearSelect("history",historyYear)}<div class="row">${btn("按年导出 JSON","archiveExport","","primary")}${btn("导入比赛 JSON","archiveImport")}</div>${
+  return `${header("记录查看")}${yearSelect("history",historyYear)}<div class="row">${btn("选择比赛导出 JSON","archiveExport","","primary")}${btn("导入比赛 JSON","archiveImport")}</div>${
     db.games.length
       ? db.games
           .filter(g=>gameYear(g)===historyYear)
@@ -358,7 +353,7 @@ function summary() {
     st = Object.fromEntries(
       Object.entries(s.stats).map(([id, x]) => [id, rates(x,g.sport)]),
     );
-  return `${header('比赛数据')}${score(s,g.ended)}<p class="muted">开始：${new Date(g.startedAt).toLocaleString('zh-CN')}<br>结束：${g.endedAt?new Date(g.endedAt).toLocaleString('zh-CN'):'进行中'}<br>记录者：${esc(name(s.scorerId))} · 裁判：${esc(name(s.umpireId))}</p><div class="row">${btn('导出本场 Excel','exportGame','','primary')}${!g.ended?btn('继续比赛','resume'):''}</div>${boxScore(g,context(g))}${recent(s)}`;
+  return `${header('比赛数据')}${score(s,g.ended)}<p class="muted">开始：${new Date(g.startedAt).toLocaleString('zh-CN')}<br>结束：${g.endedAt?new Date(g.endedAt).toLocaleString('zh-CN'):'进行中'}<br>${[["温度",g.temperature ? g.temperature+" ℃" : ""],["天气",g.weather],["地点",g.location]].filter(x=>x[1]).map(x=>esc(x.join("："))).join(" · ")}<br>记录者：${esc(name(s.scorerId))} · 裁判：${esc(name(s.umpireId))}</p><div class="row">${btn('导出本场 Excel','exportGame','','primary')}${g.ended?btn('导出本场 JSON','archiveOne','data-id="'+g.id+'"'):''}${!g.ended?btn('继续比赛','resume'):''}</div><section class="card"><h2>打击席位</h2>${g.teams.map((t,i)=>(i?"<hr>":"")+`<h3>${i?"主队":"客队"} · ${esc(t.name)}</h3>`+t.lineup.map((p,j)=>`<p>第 ${j+1} 棒 · ${esc(name(p.id))} #${esc(db.players.find(x=>x.id===p.id)?.number||"—")} · ${esc(p.pos)} · 先发</p>`).join("")).join("")}</section><section class="card"><h2>换人 / 换位记录</h2>${`<div class="box-table"><table><thead><tr>${["时间","局","球队","类型","打序","换出 / 球员","换入 / 另一球员","位置变化","球数 / 垒位"].map(h=>`<th>${h}</th>`).join("")}</tr></thead><tbody>${substitutionRows(g,id=>name(id)+" #"+(db.players.find(p=>p.id===id)?.number||"—")).map(row=>`<tr>${row.map(cell=>`<td>${esc(cell)}</td>`).join("")}</tr>`).join("")||"<tr><td colspan=9>无换人记录</td></tr>"}</tbody></table></div>`}</section>${boxScore(g,context(g))}${recent(s)}`;
 }
 
 function render() {
@@ -382,7 +377,7 @@ function updateGame(g) {
 }
 function exportStats(groups, title, meta = {}) {
   downloadXlsx(
-    statSheets(groups, db.players, { sport, ...meta }),
+    [...statSheets(groups, db.players, { sport, ...meta }),...(meta.game?recordSheets(meta.game,id=>name(id)+" #"+(db.players.find(p=>p.id===id)?.number||"—")):[])],
     title + ".xlsx",
   );
 }
@@ -412,9 +407,19 @@ async function action(a, v = {}) {
   const snapshot = clone(db);
   try {
     const g = game();
+    if(a.startsWith('special')&&a!=='specialMenu'){
+      panel=null;
+      if(handleSpecial(a,v,g,{$,updateGame,close:()=>{$('dialog')?.close();panel=null;}})){save();render();return;}
+    }
     switch (a) {
+      case 'specialMenu':
+        if(g.draft||g.pendingPitch||g.specialDraft)throw Error('请先确认或取消当前记录');
+        panel='special';break;
       case "home":
         window.goHome();
+        return;
+      case "author":
+        dialog('<div class="dialog-body"><h2>软件作者</h2><p>作者：Andy（PAVIA）</p><p>联系方式：<a href="https://github.com/Andy-Jaehn/BaseballScoreKepper" style="overflow-wrap:anywhere;word-break:break-word">https://github.com/Andy-Jaehn/BaseballScoreKepper</a></p></div><div class="dialog-actions">'+btn('关闭','close','','primary wide')+'</div>');
         return;
       case "close":
         $("dialog")?.close();
@@ -498,10 +503,17 @@ async function action(a, v = {}) {
           };
         page = "setup";
         break;
+      case "pickOfficial":
+        pickPlayer(0,v.role);return;
+      case "setOfficial":
+        db.setup[v.role]=v.id;$("dialog")?.close();break;
       case "pickPlayer":
         pickPlayer(+v.team);
         return;
+      case "logMove":
+        logIndex=Number(v.index);break;
       case "showLog":
+        logIndex=null;
         panel = "log";
         panelGameId = v.id || db.active;
         break;
@@ -513,10 +525,7 @@ async function action(a, v = {}) {
         const t = db.setup.teams[+v.team],
           id = v.id;
         if (!id) throw Error("请先选择球员");
-        const available = POSITIONS.slice(
-          0,
-          db.setup.sport === "baseball" ? 9 : 10,
-        ).find((p) => !t.lineup.some((x) => x.pos === p));
+        const available = lineupPositions(db.setup.sport).find((p) => !t.lineup.some((x) => x.pos === p)) || (db.setup.sport === "softball" ? "增额球员" : null);
         if (!available) throw Error("场上位置已满");
         if (db.setup.teams.some((t) => t.lineup.some((p) => p.id === id)))
           throw Error("该球员已在队中");
@@ -542,7 +551,7 @@ async function action(a, v = {}) {
         for (const t of db.setup.teams) {
           if (!t.name.trim()) throw Error("请填写队名");
           if (t.lineup.length < 2) throw Error("每队至少加入 2 位球员");
-          if (new Set(t.lineup.map((p) => p.pos)).size !== t.lineup.length)
+          if (new Set(t.lineup.filter(p=>p.pos!=="增额球员").map(p=>p.pos)).size !== t.lineup.filter(p=>p.pos!=="增额球员").length)
             throw Error("同一队的守备位置不能重复");
           if (!t.lineup.some((p) => p.pos === "投手"))
             throw Error("两队都需要指定投手");
@@ -554,6 +563,7 @@ async function action(a, v = {}) {
         for(const k of ['scorerId','umpireId'])if(!db.players.some(p=>!p.deleted&&p.id===db.setup[k]))throw Error('请选择记录者和裁判');
         const n = newGame(db.setup.sport, db.setup.teams);
         n.scorerId=db.setup.scorerId;n.umpireId=db.setup.umpireId;
+        for(const key of ["temperature","weather","location"])n[key]=db.setup[key]||"";
         db.games.push(n);
         db.active = n.id;
         db.setup = null;
@@ -566,7 +576,7 @@ async function action(a, v = {}) {
         g.uiStage = "miss";
         break;
       case 'ruling':
-        if(g.draft||g.pendingPitch)throw Error('请先确认或取消当前记录');
+        if(g.draft||g.pendingPitch||g.specialDraft)throw Error('请先确认或取消当前记录');
         panel='ruling';break;
       case 'rulingAdvance':
         updateGame(stageRuling(g,{kind:'advanceAward',bases:+v.n}));panel=null;break;
@@ -582,11 +592,14 @@ async function action(a, v = {}) {
         updateGame(stageRuling(g,{kind:'eject',personId:v.id,personName:name(v.id),replacementName:replacementId?name(replacementId):null,replacementId,team:+v.team}));panel=null;break;
       }
       case 'archiveExport':
-        dialog('<h2>按年份导出已完成比赛</h2>'+years(db.games.filter(g=>g.ended)).map(y=>'<label class="row"><input class="check fit" type="checkbox" name="archiveYear" value="'+y+'" '+(y===historyYear?'checked':'')+'>'+y+' 年</label>').join('')+btn('导出 JSON','archiveSave','','primary wide')+btn('关闭','close'));return;
-      case 'archiveSave': {
-        const ys=[...document.querySelectorAll('input[name="archiveYear"]:checked')].map(el=>el.value);
-        if(!ys.length)throw Error('请至少选择一个年份');downloadJson(exportArchive(db,ys),'钻石记分-'+ys.join('-')+'.json');$('dialog')?.close();return;
+        dialog('<h2>选择比赛导出</h2>'+db.games.filter(g=>g.ended).map(g=>'<label class="row"><input class="check fit" type="checkbox" name="archiveGame" value="'+g.id+'">'+esc(new Date(g.startedAt||g.created).toLocaleString('zh-CN')+' · '+g.teams.map(t=>t.name).join(' vs '))+'</label>').join('')+btn('导出所选 JSON','archiveSave','','primary wide')+btn('关闭','close'));return;
+      case "archiveOne":
+        downloadJson(exportArchive(db,[v.id],true),'钻石记分-单场.json');return;
+      case "archiveSave": {
+        const ids=[...document.querySelectorAll('[name="archiveGame"]:checked')].map(x=>x.value);
+        if(!ids.length)throw Error('请至少选择一场比赛');downloadJson(exportArchive(db,ids,true),'钻石记分-所选比赛.json');$('dialog')?.close();return;
       }
+
       case 'archiveImport':
         if(window.AndroidStore){window.AndroidStore.importJson();return;}
         {const input=document.createElement('input');input.type='file';input.accept='.json,application/json';input.onchange=()=>{const f=input.files[0];if(!f)return;if(f.size>20*1024*1024){toast('文件超过 20 MB');return;}const reader=new FileReader();reader.onload=()=>window.receiveArchive(reader.result);reader.readAsText(f);};input.click();}return;
@@ -594,14 +607,24 @@ async function action(a, v = {}) {
         stage = "pitch";
         g.uiStage = "pitch";
         break;
+      case "foulError": {
+        if(g.draft||g.pendingPitch||g.specialDraft)throw Error('请先完成当前记录');
+        const s=replay(g);
+        dialog('<h2>界外漏接失误</h2><p>仅记录正常防守应接住、漏接后延长打席的界外球。战术性放弃接球不记失误。</p><label>失误野手</label><select id="foulErrorFielder">'+s.teams[1-s.side].lineup.filter(isDefender).map(p=>'<option value="'+p.id+'">'+esc(p.pos+' · '+name(p.id))+'</option>').join('')+'</select>'+btn('记录本球','saveFoulError','','primary wide')+btn('取消','close','','wide'));
+        return;
+      }
+      case "saveFoulError":
+        updateGame(recordCount(g,'foul',{foulErrorFielder:$('#foulErrorFielder').value}));
+        $('dialog')?.close();break;
       case "pitch":
+        panel=null;
         if (g.draft) throw Error("请先处理当前 Fair");
         g.uiStage = "pitch";
         updateGame(recordCount(g, v.kind));
         stage = "pitch";
         break;
       case "contact":
-        if(g.draft || g.pendingPitch)throw Error("请先完成当前记录");
+        if(g.draft || g.pendingPitch || g.specialDraft)throw Error("请先完成当前记录");
         if (replay(g).halfEnded) throw Error("请先开启下一半局");
         g.draft = {
           type: "pitch",
@@ -612,17 +635,14 @@ async function action(a, v = {}) {
           pitcher: pitcher(replay(g)),
         };
         break;
-      case "zone":
-        if (v.value !== "界外") g.draft.zone = v.value;
-        break;
       case "award": {
         const s = replay(g),
           n = +v.n;
         Object.assign(g.draft, {
-          trajectory: "fly",
+          trajectory: null,
           awardBases: n,
           result: "stop",
-          fielder: pitcher(s),
+          fielder: null,
           actions: runnerQueue(s).map((r) => ({
             id: r.id,
             mode: "advance",
@@ -631,16 +651,15 @@ async function action(a, v = {}) {
         });
         break;
       }
-      case "trajectory":
-        if(g.sport==='softball'&&v.value==='bunt')throw Error('慢投垒球不允许触击');
-        g.draft.trajectory = v.value;
+      case "result": {
+        const d = g.draft, s = replay(g);
+        d.fielder = $("#fielder").value;
+        d.result = v.value;
+        d.trajectory = v.trajectory || null;
+        const pos = s.teams[1-s.side].lineup.find(p=>p.id===d.fielder)?.pos;
+        d.zone = d.trajectory==='popup' || !['左外野','中外野','右外野'].includes(pos) ? '内野' : '外野';
         break;
-      case "result":
-        if (v.value === "catch" && g.draft.trajectory === "ground")
-          throw Error("地滚球不能直接接杀，请选择拦截后记录封杀或触杀");
-        g.draft.fielder = $("#fielder").value;
-        g.draft.result = v.value;
-        break;
+      }
       case "advance": {
         g.draft.actions.push({ id: v.id, advance: +v.n, mode: "advance" });
         replay(g, true);
@@ -687,11 +706,13 @@ async function action(a, v = {}) {
         d.outForm = null;
         d.pending = null;
         d.errorOpen = false;
+        updateGame(settleContact(g));
         break;
       }
 
       case "draftBack": {
         const d = g.draft;
+        d.actions = d.actions.filter(a => !a.automatic);
         if(d.awardBases){delete d.awardBases;d.actions=[];delete d.result;delete d.trajectory;break;}
         d.pending = null;
         d.errorOpen = false;
@@ -700,9 +721,8 @@ async function action(a, v = {}) {
           d.actions.pop();
           delete d.scoring;
           delete d.rbi;
-        } else if (d.result) delete d.result;
-        else if (d.trajectory) delete d.trajectory;
-        else delete d.zone;
+        } else if (d.result) { delete d.result; delete d.trajectory; delete d.zone; }
+        else { g.draft = null; $("dialog")?.close(); }
         break;
       }
       case "cancelDraft":
@@ -719,6 +739,10 @@ async function action(a, v = {}) {
         updateGame(confirmCount(g));
         $("dialog")?.close();
         break;
+      case "pendingBack": {
+        const ruling=g.pendingPitch?.type==='ruling',special=g.pendingPitch?.type==='special',draft=clone(g.specialDraft||null);updateGame(cancelCount(g));
+        if(special&&draft&&!['balk','interference'].includes(draft.kind)){if(draft.actions.length)draft.actions.pop();game().specialDraft=draft;}panel=ruling?'ruling':special&&!game().specialDraft?'special':null;$("dialog")?.close();break;
+      }
       case "cancelCount":
         updateGame(cancelCount(g));
         $("dialog")?.close();
@@ -732,7 +756,11 @@ async function action(a, v = {}) {
         updateGame(commit(g, { type: "half" }));
         stage = "pitch";
         break;
+      case "offenseSub":
       case "sub":
+        if(g.draft||g.pendingPitch||g.specialDraft)throw Error('请先确认或取消当前本球记录');
+        if(a==='offenseSub'&&replay(g).halfEnded)throw Error('请先开启下一半局');
+        subMode=a==='offenseSub'?'offense':'defense';
         panel = "sub";
         sub = true;
         break;
@@ -745,7 +773,7 @@ async function action(a, v = {}) {
       case "doSwap": {
         const s = replay(g),
           index = +$("#subout").value;
-        const event = { type: "sub", team: 1 - s.side, index };
+        const event = { type: "sub", team: subMode==='offense'?s.side:1-s.side, index };
         if (a === "doSub") {
           event.id = $("#subin").value;
           if (!event.id) throw Error("请选择换入球员");
@@ -760,11 +788,11 @@ async function action(a, v = {}) {
         sub = false;
         panel = null;
         $("dialog")?.close();
-        toast("守备阵容已更新");
+        toast("换人 / 换位已记录");
         break;
       }
       case "end":
-        if (g.draft || g.pendingPitch) throw Error("请先确认或取消当前投球，再结束比赛");
+        if (g.draft || g.pendingPitch || g.specialDraft) throw Error("请先确认或取消当前投球，再结束比赛");
         if (!(await ask("结束这场比赛并保存最终数据？"))) return;
         g.ended = true;
         g.endedAt = new Date().toISOString();
@@ -800,6 +828,7 @@ async function action(a, v = {}) {
           stats: st,
         }));
         exportStats(groups, "比赛统计-" + x.created.slice(0, 10), {
+          game: x,
           sport: x.sport,
           startedAt: x.startedAt || x.created,
           endedAt: x.endedAt,
@@ -825,6 +854,15 @@ function searchPlayers(e){
   if(cursor!==null)try{input.setSelectionRange(cursor,cursor);}catch{}
 }
 document.addEventListener('input',searchPlayers);
+document.addEventListener('input',e=>{const key=e.target.dataset.environment;if(!key||!db.setup)return;db.setup[key]=e.target.value;save();});
+document.addEventListener('input',e=>{
+ if(e.target.id!=='throwingPath')return;
+ const g=game();if(!g?.draft)return;
+ const value=e.target.value,valid=(g.sport==='softball'?/^[0-9]*$/:/^[1-9]*$/).test(value);
+ e.target.setCustomValidity(valid?'':'请输入有效的守备编号');e.target.setAttribute('aria-invalid',String(!valid));
+ g.draft.throwingPath=value;save();
+ $('#throwingPathPreview').textContent=valid?(throwingPathLabel(value)||'未填写传球路径'):g.sport==='softball'?'仅可输入 0–9':'仅可输入 1–9';
+});
 document.addEventListener('compositionend',searchPlayers);
 document.addEventListener("change", (e) => {
   const el = e.target;
@@ -832,6 +870,7 @@ document.addEventListener("change", (e) => {
   const before = clone(db);
   try {
     if(el.dataset.year){if(el.dataset.year==='season')season=el.value;else historyYear=el.value;selected.clear();render();return;}
+    if(el.dataset.environment){db.setup[el.dataset.environment]=el.value.trim();save();return;}
     if(el.dataset.official){db.setup[el.dataset.official]=el.value;save();return;}
     if (el.dataset.select) {
       el.checked
@@ -945,3 +984,11 @@ function bindDrag() {
   );
 }
 render();
+
+let plateTouch=null;
+document.addEventListener('touchstart',e=>{const el=e.target.closest('[data-plate-index]');plateTouch=el?{x:e.touches[0].clientX,y:e.touches[0].clientY,index:Number(el.dataset.plateIndex)}:null;},{passive:true});
+document.addEventListener('touchend',e=>{if(!plateTouch)return;const t=plateTouch;plateTouch=null;const dx=e.changedTouches[0].clientX-t.x,dy=e.changedTouches[0].clientY-t.y;if(Math.abs(dx)>50&&Math.abs(dx)>Math.abs(dy)){const g=db.games.find(g=>g.id===(panelGameId||db.active)),index=t.index+(dx<0?1:-1);if(g&&index>=0&&index<plateRecords(g).length)action('logMove',{index});}},{passive:true});
+
+let plateMouse=null;
+document.addEventListener('pointerdown',e=>{if(e.pointerType!=='mouse')return;const el=e.target.closest('[data-plate-index]');plateMouse=el?{x:e.clientX,y:e.clientY,index:Number(el.dataset.plateIndex)}:null;});
+document.addEventListener('pointerup',e=>{if(!plateMouse)return;const t=plateMouse;plateMouse=null;const dx=e.clientX-t.x,dy=e.clientY-t.y;const g=db.games.find(g=>g.id===(panelGameId||db.active));const index=t.index+(dx<0?1:-1);if(Math.abs(dx)>50&&Math.abs(dx)>Math.abs(dy)&&g&&index>=0&&index<plateRecords(g).length)action('logMove',{index});});

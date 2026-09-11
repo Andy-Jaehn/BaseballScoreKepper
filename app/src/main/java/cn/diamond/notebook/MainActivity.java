@@ -37,7 +37,13 @@ public final class MainActivity extends Activity {
                 try {return new WebResourceResponse(mime,"UTF-8",getAssets().open("web/"+path));}
                 catch(IOException e){return new WebResourceResponse("text/plain","UTF-8",new ByteArrayInputStream(new byte[0]));}
             }
-            @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) { return true; }
+            @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                if ("https://github.com/Andy-Jaehn/BaseballScoreKepper".equals(request.getUrl().toString())) {
+                    try { startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW, request.getUrl())); }
+                    catch (android.content.ActivityNotFoundException ignored) { }
+                }
+                return true;
+            }
         });
         setContentView(web);
         web.setOnApplyWindowInsetsListener((v,insets)->{v.setPadding(insets.getSystemWindowInsetLeft(),insets.getSystemWindowInsetTop(),insets.getSystemWindowInsetRight(),insets.getSystemWindowInsetBottom());return insets;});

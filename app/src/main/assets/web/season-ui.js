@@ -1,7 +1,7 @@
 import {replay,rates,emptyStats,batter,runnerQueue} from './engine.js';
-import {teamIds,BATTING,FIELDING,PITCHING} from './statistics.js';
+import {statLabel,teamIds,BATTING,FIELDING,PITCHING} from './statistics.js';
 export function officialFields(setup,players,esc){
- return `<section class="card officials"><h3>比赛工作人员</h3>${[['scorerId','记录者'],['umpireId','裁判']].map(([key,label])=>`<label>${label}<select data-official="${key}"><option value="">从球员注册表选择</option>${players.filter(p=>!p.deleted).map(p=>`<option value="${esc(p.id)}" ${setup[key]===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label>`).join('')}<small class="muted">记录者与裁判可以是同一人，也可以参与比赛。</small></section>`;
+ return '<section class="card officials"><h3>比赛工作人员</h3>'+[['scorerId','记录者'],['umpireId','裁判']].map(([key,label])=>'<label>'+label+'</label><button data-action="pickOfficial" data-role="'+key+'" class="wide">'+esc(players.find(p=>p.id===setup[key])?.name||'搜索并选择'+label)+'</button>').join('')+'<small class="muted">记录者与裁判可以是同一人，也可以参与比赛。</small></section>';
 }
 export function rulingDialog(g,ctx,players){
  const {btn,esc,name}=ctx,s=replay(g),runners=runnerQueue(s).filter(r=>r.from);
@@ -14,10 +14,10 @@ export function ejectDialog(g,ctx,players,id){
 }
 export function boxScore(g,ctx){
  const {esc,name}=ctx,s=replay(g,true),fmt=(v,k)=>['AVG','OBP','SLG','OPS','FPCT'].includes(k)?Number(v||0).toFixed(3):['ERA','WHIP','K/9'].includes(k)?Number(v||0).toFixed(2):v??0;
- const table=(ids,keys,st,label)=>`<h3>${label}</h3><div class="box-table"><table><thead><tr><th>球员</th>${keys.map(k=>`<th>${k}</th>`).join('')}</tr></thead><tbody>${ids.map(id=>`<tr><th title="${esc(name(id))}">${esc(name(id))}</th>${keys.map(k=>`<td>${fmt(st[id][k],k)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+ const table=(ids,keys,st,label)=>`<h3>${label}</h3><div class="box-table"><table><thead><tr><th>球员</th>${keys.map(k=>`<th>${statLabel(k)}</th>`).join('')}</tr></thead><tbody>${ids.map(id=>`<tr><th title="${esc(name(id))}">${esc(name(id))}</th>${keys.map(k=>`<td>${fmt(st[id][k],k)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
  return `<div class="box-score">${g.teams.map((t,i)=>{
   const ids=teamIds(g,i),st=Object.fromEntries(ids.map(id=>[id,rates(s.stats[id]||emptyStats(),g.sport)])),pitchers=ids.filter(id=>st[id].P>0);
   const notes=(keys,list=ids)=>keys.map(k=>{const values=list.filter(id=>Number(st[id][k])>0).map(id=>`${name(id)} ${fmt(st[id][k],k)}`);return values.length?`<p><b>${k}</b> ${esc(values.join('；'))}</p>`:'';}).join('');
-  return `<section class="box-team"><h2>${i?'主队':'客队'} · ${esc(t.name)} <strong>${s.score[i].R}</strong></h2>${table(ids,['AB','R','H','RBI','BB','SO'],st,'打击')}<div class="box-notes">${notes(['2B','3B','HR','HBP','IBB','SF','SH','GDP'])}</div><details><summary>高级打击数据</summary>${table(ids,['AVG','OBP','SLG','OPS'],st,'本场比率')}</details>${pitchers.length?table(pitchers,['IP','HA','RA','ER','BBA','K'],st,'投球')+table(pitchers,['P-S','HBPA','IBBA','ERA','K/9'],st,'投球明细'):''}${table(ids,['PO','A','E','DP','TP'],st,'守备')}</section>`;
+  return `<section class="box-team"><h2>${i?'主队':'客队'} · ${esc(t.name)} <strong>${s.score[i].R}</strong></h2>${table(ids,['AB','R','H','RBI','BB','SO'],st,'打击')}<div class="box-notes">${notes(['2B','3B','HR','HBP','IBB','SF','SH','GDP','SB','CS','DS','CI'])}</div><details><summary>高级打击数据</summary>${table(ids,['AVG','OBP','SLG','OPS','SB','CS','DS','CI','D3K','NP','FB','LD','IFF','GB'],st,'本场比率')}</details>${pitchers.length?table(pitchers,['IP','HA','RA','ER','BBA','K'],st,'投球')+table(pitchers,['P-S','HBPA','IBBA','ERA','K/9','WP','BK','PICK','P_FB','P_LD','P_IFF','P_GB'],st,'投球明细'):''}${table(ids,FIELDING,st,'守备')}</section>`;
  }).join('')}</div>`;
 }
