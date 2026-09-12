@@ -7,7 +7,7 @@ export function applySpecial(s,g,e,h){
  const defense=s.teams[1-s.side].lineup.filter(isDefender),validFielder=id=>defense.some(f=>f.id===id),catcher=defense.find(f=>f.pos==='捕手')?.id;
  const requireFielder=id=>{if(!validFielder(id))throw Error('请选择有效的守备球员');};
  const markLast=(label)=>{const l=s.log.at(-1);l.kind=e.kind;l.summary=label+' · '+l.summary;l.special=true;};
- if(e.kind==='balk'&&!beforeBases.length){add(s,p,'BK');apply(s,g,{...e,type:'pitch',kind:'ball'});markLast('投手犯规（无人上垒，记一个坏球）');return;}
+ if(e.kind==='balk'&&!beforeBases.length){add(s,p,'BK');apply(s,g,{...e,type:'pitch',kind:'ball',countsAsNonPitch:true});markLast('投手犯规（无人上垒，记一个坏球）');return;}
  if(e.kind==='droppedThird'&&s.s!==2)throw Error('不死三振仅可在两好球时记录');
  if(e.kind==='foulDrop'){
   requireFielder(e.errorFielder);add(s,e.errorFielder,'F_FOUL_E');apply(s,g,{...e,type:'pitch',kind:'foul',twoStrikeFoulOut:false,foulErrorFielder:e.errorFielder});markLast('界外漏接');return;
@@ -18,7 +18,7 @@ export function applySpecial(s,g,e,h){
   if(!beforeBases.length)throw Error('当前没有垒上跑者');
   add(s,p,'P');add(s,id,'NP');if(e.kind==='wp')add(s,p,'WP');else {if(!catcher)throw Error('请指定捕手');add(s,catcher,'PB');}
  }
- if(e.kind==='balk'){add(s,p,'P');add(s,id,'NP');add(s,p,'BK');source=queue.map(r=>({id:r.id,mode:'advance',advance:1}));}
+ if(e.kind==='balk'){add(s,p,'BK');source=queue.map(r=>({id:r.id,mode:'advance',advance:1}));}
  if(e.kind==='pickoff'){
   const target=beforeBases.find(r=>r.from===e.base);if(!target)throw Error('请选择有跑者的牵制垒包');
   if(e.putout&&e.errorFielder)throw Error('牵制出局与牵制失误不能同时填写');

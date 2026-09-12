@@ -73,6 +73,7 @@ export function rates(st, sport = "baseball") {
     IP: `${Math.floor(s.OUT / 3)}.${s.OUT % 3}`,
     WHIP: div(3 * (s.HA + s.BBA), s.OUT),
     ERA: div((sport === "softball" ? 21 : 27) * s.ER, s.OUT),
+    RA9: div(27 * s.RA, s.OUT),
     "K/9": div(27 * s.K, s.OUT),
     FPCT: div(s.PO + s.A, s.PO + s.A + s.E),
     "P-S": `${s.P}-${s.STR}`,
@@ -251,7 +252,7 @@ export function apply(s, g, e, provisional = false) {
     throw Error("当前打者仍在垒上，请使用完整打序");
   if (!["ball", "strike", "foul", "hbp", "contact", "ibb", "awardWalk"].includes(e.kind))
     throw Error("未知投球类型");
-  if(e.kind!=='awardWalk'){add(s,p,'P');add(s,id,'NP');}
+  if(!['awardWalk','ibb'].includes(e.kind) && !e.countsAsNonPitch){add(s,p,'P');add(s,id,'NP');}
   if (["strike", "foul", "contact"].includes(e.kind)) add(s, p, "STR");
   let summary = "",
     result = "",

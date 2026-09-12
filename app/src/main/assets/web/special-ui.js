@@ -1,12 +1,15 @@
 import {replay,runnerQueue,advanceLimit,isDefender,stageSpecial,uid} from './engine.js';
 import {specialNames} from './special-engine.js';
 import {field} from './match-ui.js';
-export function specialMenu(g,ctx){const {btn}=ctx,s=replay(g);return '<div class="dialog-body"><h2>特殊情况</h2>'+[
+export function specialMenu(g,ctx){const {btn}=ctx,s=replay(g),hasRunner=s.bases.some(Boolean),slowPitch=g.sport==='softball',disabled=(kind)=>{
+ const unavailable=slowPitch&&['hbp','wp','pb','pickoff','droppedThird','interference','steal'].includes(kind),needsRunner=['pickoff','steal'].includes(kind)&&!hasRunner;
+ return unavailable?'disabled title="慢投垒球不适用"':needsRunner?'disabled title="当前没有垒上跑者"':'';
+};return '<div class="dialog-body"><h2>特殊情况</h2>'+[
  [['HBP','pitch','hbp'],['IBB','pitch','ibb']],
  [['暴投','specialStart','wp'],['捕逸','specialStart','pb'],['投手犯规','specialStart','balk']],
- [['界外接杀','specialStart','foulCatch'],['界外漏接','specialStart','foulDrop'],['牵制出局','specialStart','pickoff']],
+ [['界外接杀','specialStart','foulCatch'],['界外漏接','specialStart','foulDrop'],['牵制','specialStart','pickoff']],
  [['不死三振','specialStart','droppedThird'],['捕手妨碍打击','specialStart','interference'],['盗垒','specialStart','steal']]
- ].map(row=>'<div class="special-row">'+row.map(([label,action,kind])=>btn(label,action,'data-kind="'+kind+'" '+(kind==='droppedThird'&&s.s!==2?'disabled title="仅两好球时可用"':''))).join('')+'</div>').join('')+'</div><div class="dialog-actions">'+btn('返回记分','closePanel','','ghost wide')+'</div>';}
+ ].map(row=>'<div class="special-row">'+row.map(([label,action,kind])=>btn(label,action,'data-kind="'+kind+'" '+(disabled(kind)||(kind==='droppedThird'&&s.s!==2?'disabled title="仅两好球时可用"':'')))).join('')+'</div>').join('')+'</div><div class="dialog-actions">'+btn('返回记分','closePanel','','ghost wide')+'</div>';}
 const queueFor=(s,d)=>runnerQueue(s).filter(r=>r.from||d.kind==='droppedThird');
 export function specialDialog(g,ctx){
  const {btn,esc,name}=ctx,s=replay(g),d=g.specialDraft,defense=s.teams[1-s.side].lineup.filter(isDefender);
@@ -41,6 +44,7 @@ export function handleSpecial(action,v,g,ctx){
  const advance=()=>{const q=queueFor(s,d);if(s.o+d.actions.filter(a=>a.mode==='tag').length>=3||q.every(r=>d.actions.some(a=>a.id===r.id)))ready();};
  if(action==='specialStart'){
   if(g.draft||g.pendingPitch||g.specialDraft)throw Error('请先确认或取消当前记录');if(s.halfEnded)throw Error('请先开启下个半局');
+  if(g.sport==='softball'&&['wp','pb','pickoff','droppedThird','interference','steal'].includes(v.kind))throw Error('慢投垒球不适用此项记录');
   if(v.kind==='droppedThird'&&s.s!==2)throw Error('不死三振仅可在两好球时记录');
   if(!specialNames[v.kind])throw Error('未知特殊情况');
   if(['wp','pb','pickoff','steal'].includes(v.kind)&&!s.bases.some(Boolean))throw Error('当前没有垒上跑者');

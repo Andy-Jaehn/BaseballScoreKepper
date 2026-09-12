@@ -619,6 +619,7 @@ async function action(a, v = {}) {
       case "pitch":
         panel=null;
         if (g.draft) throw Error("请先处理当前 Fair");
+        if (g.sport === "softball" && v.kind === "hbp") throw Error("慢投垒球不适用 HBP");
         g.uiStage = "pitch";
         updateGame(recordCount(g, v.kind));
         stage = "pitch";

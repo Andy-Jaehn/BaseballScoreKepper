@@ -1,5 +1,5 @@
 import { rates, emptyStats } from "./engine.js";
-export const statLabel = k => ({WP:'WP 暴投',PB:'PB 捕逸',BK:'BK 投手犯规',PICK:'PICK 牵制次数',SB:'SB 盗垒',CS:'CS 盗垒失败',DS:'DS 双盗垒',CI:'CI 妨碍上垒',F_CI:'CI 捕手妨碍',D3K:'D3K 不死三振',F_FOUL_E:'界外漏接失误',NP:'NP 面对投球数'})[k] || k.replace(/^[PF]_/, "");
+export const statLabel = k => ({WP:'WP 暴投',PB:'PB 捕逸',BK:'BK 非法投球（投手犯规）',PICK:'PICK 牵制尝试',SB:'SB 盗垒',CS:'CS 盗垒失败',DS:'DS 双盗垒',CI:'CI 妨碍上垒',F_CI:'CI 捕手妨碍',D3K:'D3K 不死三振',F_FOUL_E:'界外漏接失误',NP:'NP 面对投球数',RA9:'RA9 每九局失分'})[k] || k.replace(/^[PF]_/, "");
 export const BATTING = [
   "FB", "LD", "IFF", "GB",
   "AB",
@@ -38,6 +38,7 @@ export const PITCHING = [
   "HBPA",
   "K",
   "RA",
+  "RA9",
   "ER",
   "ERA",
   "WHIP",

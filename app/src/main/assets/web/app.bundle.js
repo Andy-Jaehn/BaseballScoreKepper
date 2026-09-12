@@ -55,7 +55,7 @@
     };
     if (e.kind === "balk" && !beforeBases.length) {
       add2(s, p, "BK");
-      apply2(s, g, { ...e, type: "pitch", kind: "ball" });
+      apply2(s, g, { ...e, type: "pitch", kind: "ball", countsAsNonPitch: true });
       markLast("\u6295\u624B\u72AF\u89C4\uFF08\u65E0\u4EBA\u4E0A\u5792\uFF0C\u8BB0\u4E00\u4E2A\u574F\u7403\uFF09");
       return;
     }
@@ -80,8 +80,6 @@
       }
     }
     if (e.kind === "balk") {
-      add2(s, p, "P");
-      add2(s, id, "NP");
       add2(s, p, "BK");
       source = queue.map((r) => ({ id: r.id, mode: "advance", advance: 1 }));
     }
@@ -559,6 +557,7 @@
       IP: `${Math.floor(s.OUT / 3)}.${s.OUT % 3}`,
       WHIP: div(3 * (s.HA + s.BBA), s.OUT),
       ERA: div((sport2 === "softball" ? 21 : 27) * s.ER, s.OUT),
+      RA9: div(27 * s.RA, s.OUT),
       "K/9": div(27 * s.K, s.OUT),
       FPCT: div(s.PO + s.A, s.PO + s.A + s.E),
       "P-S": `${s.P}-${s.STR}`
@@ -731,7 +730,7 @@
       throw Error("\u5F53\u524D\u6253\u8005\u4ECD\u5728\u5792\u4E0A\uFF0C\u8BF7\u4F7F\u7528\u5B8C\u6574\u6253\u5E8F");
     if (!["ball", "strike", "foul", "hbp", "contact", "ibb", "awardWalk"].includes(e.kind))
       throw Error("\u672A\u77E5\u6295\u7403\u7C7B\u578B");
-    if (e.kind !== "awardWalk") {
+    if (!["awardWalk", "ibb"].includes(e.kind) && !e.countsAsNonPitch) {
       add(s, p, "P");
       add(s, id, "NP");
     }
@@ -1357,13 +1356,16 @@
 
   // app/src/main/assets/web/special-ui.js
   function specialMenu(g, ctx) {
-    const { btn: btn2 } = ctx, s = replay(g);
+    const { btn: btn2 } = ctx, s = replay(g), hasRunner = s.bases.some(Boolean), slowPitch = g.sport === "softball", disabled = (kind) => {
+      const unavailable = slowPitch && ["hbp", "wp", "pb", "pickoff", "droppedThird", "interference", "steal"].includes(kind), needsRunner = ["pickoff", "steal"].includes(kind) && !hasRunner;
+      return unavailable ? 'disabled title="\u6162\u6295\u5792\u7403\u4E0D\u9002\u7528"' : needsRunner ? 'disabled title="\u5F53\u524D\u6CA1\u6709\u5792\u4E0A\u8DD1\u8005"' : "";
+    };
     return '<div class="dialog-body"><h2>\u7279\u6B8A\u60C5\u51B5</h2>' + [
       [["HBP", "pitch", "hbp"], ["IBB", "pitch", "ibb"]],
       [["\u66B4\u6295", "specialStart", "wp"], ["\u6355\u9038", "specialStart", "pb"], ["\u6295\u624B\u72AF\u89C4", "specialStart", "balk"]],
-      [["\u754C\u5916\u63A5\u6740", "specialStart", "foulCatch"], ["\u754C\u5916\u6F0F\u63A5", "specialStart", "foulDrop"], ["\u7275\u5236\u51FA\u5C40", "specialStart", "pickoff"]],
+      [["\u754C\u5916\u63A5\u6740", "specialStart", "foulCatch"], ["\u754C\u5916\u6F0F\u63A5", "specialStart", "foulDrop"], ["\u7275\u5236", "specialStart", "pickoff"]],
       [["\u4E0D\u6B7B\u4E09\u632F", "specialStart", "droppedThird"], ["\u6355\u624B\u59A8\u788D\u6253\u51FB", "specialStart", "interference"], ["\u76D7\u5792", "specialStart", "steal"]]
-    ].map((row) => '<div class="special-row">' + row.map(([label, action2, kind]) => btn2(label, action2, 'data-kind="' + kind + '" ' + (kind === "droppedThird" && s.s !== 2 ? 'disabled title="\u4EC5\u4E24\u597D\u7403\u65F6\u53EF\u7528"' : ""))).join("") + "</div>").join("") + '</div><div class="dialog-actions">' + btn2("\u8FD4\u56DE\u8BB0\u5206", "closePanel", "", "ghost wide") + "</div>";
+    ].map((row) => '<div class="special-row">' + row.map(([label, action2, kind]) => btn2(label, action2, 'data-kind="' + kind + '" ' + (disabled(kind) || (kind === "droppedThird" && s.s !== 2 ? 'disabled title="\u4EC5\u4E24\u597D\u7403\u65F6\u53EF\u7528"' : "")))).join("") + "</div>").join("") + '</div><div class="dialog-actions">' + btn2("\u8FD4\u56DE\u8BB0\u5206", "closePanel", "", "ghost wide") + "</div>";
   }
   var queueFor = (s, d) => runnerQueue(s).filter((r) => r.from || d.kind === "droppedThird");
   function specialDialog(g, ctx) {
@@ -1408,6 +1410,7 @@
     if (action2 === "specialStart") {
       if (g.draft || g.pendingPitch || g.specialDraft) throw Error("\u8BF7\u5148\u786E\u8BA4\u6216\u53D6\u6D88\u5F53\u524D\u8BB0\u5F55");
       if (s.halfEnded) throw Error("\u8BF7\u5148\u5F00\u542F\u4E0B\u4E2A\u534A\u5C40");
+      if (g.sport === "softball" && ["wp", "pb", "pickoff", "droppedThird", "interference", "steal"].includes(v.kind)) throw Error("\u6162\u6295\u5792\u7403\u4E0D\u9002\u7528\u6B64\u9879\u8BB0\u5F55");
       if (v.kind === "droppedThird" && s.s !== 2) throw Error("\u4E0D\u6B7B\u4E09\u632F\u4EC5\u53EF\u5728\u4E24\u597D\u7403\u65F6\u8BB0\u5F55");
       if (!specialNames[v.kind]) throw Error("\u672A\u77E5\u7279\u6B8A\u60C5\u51B5");
       if (["wp", "pb", "pickoff", "steal"].includes(v.kind) && !s.bases.some(Boolean)) throw Error("\u5F53\u524D\u6CA1\u6709\u5792\u4E0A\u8DD1\u8005");
@@ -1617,7 +1620,7 @@
   }
 
   // app/src/main/assets/web/statistics.js
-  var statLabel = (k) => ({ WP: "WP \u66B4\u6295", PB: "PB \u6355\u9038", BK: "BK \u6295\u624B\u72AF\u89C4", PICK: "PICK \u7275\u5236\u6B21\u6570", SB: "SB \u76D7\u5792", CS: "CS \u76D7\u5792\u5931\u8D25", DS: "DS \u53CC\u76D7\u5792", CI: "CI \u59A8\u788D\u4E0A\u5792", F_CI: "CI \u6355\u624B\u59A8\u788D", D3K: "D3K \u4E0D\u6B7B\u4E09\u632F", F_FOUL_E: "\u754C\u5916\u6F0F\u63A5\u5931\u8BEF", NP: "NP \u9762\u5BF9\u6295\u7403\u6570" })[k] || k.replace(/^[PF]_/, "");
+  var statLabel = (k) => ({ WP: "WP \u66B4\u6295", PB: "PB \u6355\u9038", BK: "BK \u975E\u6CD5\u6295\u7403\uFF08\u6295\u624B\u72AF\u89C4\uFF09", PICK: "PICK \u7275\u5236\u5C1D\u8BD5", SB: "SB \u76D7\u5792", CS: "CS \u76D7\u5792\u5931\u8D25", DS: "DS \u53CC\u76D7\u5792", CI: "CI \u59A8\u788D\u4E0A\u5792", F_CI: "CI \u6355\u624B\u59A8\u788D", D3K: "D3K \u4E0D\u6B7B\u4E09\u632F", F_FOUL_E: "\u754C\u5916\u6F0F\u63A5\u5931\u8BEF", NP: "NP \u9762\u5BF9\u6295\u7403\u6570", RA9: "RA9 \u6BCF\u4E5D\u5C40\u5931\u5206" })[k] || k.replace(/^[PF]_/, "");
   var BATTING = [
     "FB",
     "LD",
@@ -1669,6 +1672,7 @@
     "HBPA",
     "K",
     "RA",
+    "RA9",
     "ER",
     "ERA",
     "WHIP",
@@ -1739,7 +1743,7 @@
     return `<h2>\u9A71\u9010 \xB7 \u66FF\u6362\u4EBA\u5458</h2><p>${esc2(name2(id))}${team < 0 ? "" : ` \xB7 \u7B2C ${index + 1} \u68D2 \xB7 ${esc2(s.teams[team].lineup[index].pos)}`}</p><p class="muted">${team >= 0 ? "\u66FF\u8865\u7EE7\u627F\u539F\u68D2\u6B21\u3001\u5B88\u5907\u4F4D\u7F6E\u53CA\u5792\u4E0A\u72B6\u6001\u3002" : officer ? "\u66FF\u6362\u4EBA\u5458\u63A5\u4EFB\u5176\u6BD4\u8D5B\u5DE5\u4F5C\u4EBA\u5458\u804C\u8D23\u3002" : "\u8BE5\u4EBA\u5458\u4E0D\u5728\u5F53\u524D\u573A\u4E0A\u9635\u5BB9\u4E2D\u3002"}</p>${team >= 0 || officer ? `<label>\u9009\u62E9\u66FF\u6362\u4EBA\u5458</label><select id="ejectReplacement"><option value="">\u4ECE\u6CE8\u518C\u8868\u9009\u62E9</option>${players2.filter((p) => !p.deleted && p.id !== id && !s.ejected.includes(p.id) && (team < 0 || !s.teams.some((t) => t.lineup.some((x) => x.id === p.id)))).map((p) => `<option value="${esc2(p.id)}">${esc2(p.name)}</option>`).join("")}</select>` : ""}${btn2("\u67E5\u770B\u5224\u7F5A\u7ED3\u679C", "ejectReady", `data-id="${esc2(id)}" data-team="${team}"`, "primary wide")}${btn2("\u8FD4\u56DE\u5224\u7F5A", "ruling", "", "ghost wide")}`;
   }
   function boxScore(g, ctx) {
-    const { esc: esc2, name: name2 } = ctx, s = replay(g, true), fmt = (v, k) => ["AVG", "OBP", "SLG", "OPS", "FPCT"].includes(k) ? Number(v || 0).toFixed(3) : ["ERA", "WHIP", "K/9"].includes(k) ? Number(v || 0).toFixed(2) : v != null ? v : 0;
+    const { esc: esc2, name: name2 } = ctx, s = replay(g, true), fmt = (v, k) => ["AVG", "OBP", "SLG", "OPS", "FPCT"].includes(k) ? Number(v || 0).toFixed(3) : ["ERA", "RA9", "WHIP", "K/9"].includes(k) ? Number(v || 0).toFixed(2) : v != null ? v : 0;
     const table2 = (ids, keys, st, label) => `<h3>${label}</h3><div class="box-table"><table><thead><tr><th>\u7403\u5458</th>${keys.map((k) => `<th>${statLabel(k)}</th>`).join("")}</tr></thead><tbody>${ids.map((id) => `<tr><th title="${esc2(name2(id))}">${esc2(name2(id))}</th>${keys.map((k) => `<td>${fmt(st[id][k], k)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
     return `<div class="box-score">${g.teams.map((t, i) => {
       const ids = teamIds(g, i), st = Object.fromEntries(ids.map((id) => [id, rates(s.stats[id] || emptyStats(), g.sport)])), pitchers = ids.filter((id) => st[id].P > 0);
@@ -1747,7 +1751,7 @@
         const values = list.filter((id) => Number(st[id][k]) > 0).map((id) => `${name2(id)} ${fmt(st[id][k], k)}`);
         return values.length ? `<p><b>${k}</b> ${esc2(values.join("\uFF1B"))}</p>` : "";
       }).join("");
-      return `<section class="box-team"><h2>${i ? "\u4E3B\u961F" : "\u5BA2\u961F"} \xB7 ${esc2(t.name)} <strong>${s.score[i].R}</strong></h2>${table2(ids, ["AB", "R", "H", "RBI", "BB", "SO"], st, "\u6253\u51FB")}<div class="box-notes">${notes(["2B", "3B", "HR", "HBP", "IBB", "SF", "SH", "GDP", "SB", "CS", "DS", "CI"])}</div><details><summary>\u9AD8\u7EA7\u6253\u51FB\u6570\u636E</summary>${table2(ids, ["AVG", "OBP", "SLG", "OPS", "SB", "CS", "DS", "CI", "D3K", "NP", "FB", "LD", "IFF", "GB"], st, "\u672C\u573A\u6BD4\u7387")}</details>${pitchers.length ? table2(pitchers, ["IP", "HA", "RA", "ER", "BBA", "K"], st, "\u6295\u7403") + table2(pitchers, ["P-S", "HBPA", "IBBA", "ERA", "K/9", "WP", "BK", "PICK", "P_FB", "P_LD", "P_IFF", "P_GB"], st, "\u6295\u7403\u660E\u7EC6") : ""}${table2(ids, FIELDING, st, "\u5B88\u5907")}</section>`;
+      return `<section class="box-team"><h2>${i ? "\u4E3B\u961F" : "\u5BA2\u961F"} \xB7 ${esc2(t.name)} <strong>${s.score[i].R}</strong></h2>${table2(ids, ["AB", "R", "H", "RBI", "BB", "SO"], st, "\u6253\u51FB")}<div class="box-notes">${notes(["2B", "3B", "HR", "HBP", "IBB", "SF", "SH", "GDP", "SB", "CS", "DS", "CI"])}</div><details><summary>\u9AD8\u7EA7\u6253\u51FB\u6570\u636E</summary>${table2(ids, ["AVG", "OBP", "SLG", "OPS", "SB", "CS", "DS", "CI", "D3K", "NP", "FB", "LD", "IFF", "GB"], st, "\u672C\u573A\u6BD4\u7387")}</details>${pitchers.length ? table2(pitchers, ["IP", "HA", "RA", "RA9", "ER", "BBA", "K"], st, "\u6295\u7403") + table2(pitchers, ["P-S", "HBPA", "IBBA", "ERA", "K/9", "WP", "BK", "PICK", "P_FB", "P_LD", "P_IFF", "P_GB"], st, "\u6295\u7403\u660E\u7EC6") : ""}${table2(ids, FIELDING, st, "\u5B88\u5907")}</section>`;
     }).join("")}</div>`;
   }
 
@@ -2466,6 +2470,7 @@
         case "pitch":
           panel = null;
           if (g.draft) throw Error("\u8BF7\u5148\u5904\u7406\u5F53\u524D Fair");
+          if (g.sport === "softball" && v.kind === "hbp") throw Error("\u6162\u6295\u5792\u7403\u4E0D\u9002\u7528 HBP");
           g.uiStage = "pitch";
           updateGame(recordCount(g, v.kind));
           stage = "pitch";
