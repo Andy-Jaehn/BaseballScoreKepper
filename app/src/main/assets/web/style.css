@@ -143,27 +143,64 @@ p {
   gap: 12px;
 }
 .homebtn {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
   text-align: left;
-  min-height: 132px;
+  min-height: 154px;
   padding: 22px;
   background: white;
   border: 1px solid #e0e6dc;
 }
 .homebtn b {
+  position: relative;
   display: block;
   font-size: 19px;
   margin: 10px 0 6px;
 }
 .homebtn span {
+  position: relative;
   font-size: 12px;
   color: var(--muted);
 }
-.homebtn.primary {
-  background: #17654c;
+.homebtn.home-baseball {
+  background: #b52e40;
+  border-color: #b52e40;
   color: white;
 }
-.homebtn.primary span {
-  color: #c6e3d1;
+.homebtn.home-baseball span {
+  color: #ffe5e8;
+}
+.homebtn.home-softball {
+  background: #d5ed39;
+  border-color: #c3da29;
+  color: #25340d;
+}
+.homebtn.home-softball span {
+  color: #43551b;
+}
+.home-art {
+  position: absolute;
+  width: 190px;
+  height: 156px;
+  right: -34px;
+  top: -14px;
+  color: #31664d;
+  opacity: .13;
+  transform: rotate(-14deg);
+  pointer-events: none;
+  z-index: -1;
+}
+.home-baseball .home-art {
+  opacity: .55;
+}
+.home-softball .home-art {
+  opacity: .55;
+  transform: rotate(18deg) scale(1.08);
+}
+.homebtn:focus-visible {
+  outline: 3px solid #102923;
+  outline-offset: 3px;
 }
 .card {
   background: white;

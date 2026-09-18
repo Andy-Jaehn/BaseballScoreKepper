@@ -1478,8 +1478,41 @@
     return true;
   }
 
+  // app/src/main/assets/web/home-art.js
+  function homeArt(kind) {
+    const ball = (softball) => {
+      let stitches = "";
+      for (const side of [-1, 1]) {
+        for (let i = 0; i < 13; i++) {
+          const t = (i + 0.5) / 13, y = 33.5 + 105 * t;
+          const x = 110 + side * (40 - 104 * t * (1 - t));
+          const dx = side * (-104 + 208 * t), length = Math.hypot(dx, 105);
+          const tx = dx / length, ty = 105 / length, nx = ty, ny = -tx;
+          const point = (n, along) => `${(x + nx * n + tx * along).toFixed(2)} ${(y + ny * n + ty * along).toFixed(2)}`;
+          stitches += `<path d="M${point(-5, -2.6)}L${point(0, 1.8)}L${point(5, -2.6)}"/>`;
+        }
+      }
+      return `<circle cx="110" cy="86" r="66" fill="${softball ? "#e5f43b" : "#fffaf0"}" stroke="${softball ? "#829523" : "#e6d8c9"}" stroke-width="1.5"/><g stroke="#b52e40"><path d="M70 33.5Q122 86 70 138.5M150 33.5Q98 86 150 138.5" stroke-width="1" opacity=".6"/><g stroke-width="2">${stitches}</g></g>`;
+    };
+    const shapes = {
+      players: '<path d="m65 36 28-12q17 18 34 0l28 12 27 37-25 19-14-18v79H77V74L63 92 38 73Z"/><path d="M93 24q0 33 34 0M77 133h66M47 61l25 18m77 0 25-18"/><path d="M99 73h23l-17 40m21-40v40"/>',
+      baseball: ball(false),
+      softball: ball(true),
+      history: '<rect x="52" y="29" width="119" height="133" rx="12"/><path d="M75 29v133M93 53h55M93 66h34M88 86h67v57H88Zm0 19h67m-67 19h67m-45-38v57m23-57v57M44 52h17M44 76h17M44 100h17M44 124h17"/><path d="m135 27 9-9 35 35-9 9Z"/>'
+    };
+    return `<svg class="home-art" viewBox="0 0 220 180" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${shapes[kind]}</svg>`;
+  }
+
+  // app/src/main/assets/web/import-summary.js
+  function importSummary(result, esc2) {
+    const labels = { name: "\u59D3\u540D", number: "\u80CC\u53F7", bats: "\u6253\u51FB\u624B", throws: "\u6295\u7403\u624B" };
+    const value = (field2, v) => esc2(v ? field2 === "bats" ? { R: "\u53F3\u6253", L: "\u5DE6\u6253", S: "\u5DE6\u53F3\u5F00\u5F13" }[v] || v : field2 === "throws" ? { R: "\u53F3\u6295", L: "\u5DE6\u6295" }[v] || v : v : "\u672A\u586B\u5199");
+    const status = { added: "\u65B0\u589E\u7403\u5458", restored: "\u6062\u590D\u5E76\u5408\u5E76", merged: "\u540C\u540D\u5408\u5E76" };
+    return "<h2>\u5BFC\u5165\u5B8C\u6210</h2><p>\u65B0\u589E " + result.count + " \u573A\uFF0C\u8DF3\u8FC7\u91CD\u590D " + result.skipped + ' \u573A\u3002</p><p class="muted">\u7403\u5458\u6309\u59D3\u540D\u5339\u914D\uFF0C\u4E0D\u533A\u5206\u5927\u5C0F\u5199\u3002\u540C\u540D\u5408\u5E76\u65F6\u4FDD\u7559\u672C\u5730\u80CC\u53F7\u4E0E\u60EF\u7528\u624B\u3002</p><details open><summary>\u7403\u5458\u660E\u7EC6 \xB7 ' + result.playerDetails.length + " \u4EBA</summary>" + result.playerDetails.map((p) => '<section class="card"><b>' + esc2(p.localName) + "</b> \xB7 " + status[p.status] + (p.differences.length ? '<p class="muted">' + (p.status === "added" ? "\u8D44\u6599\u6574\u7406\uFF08\u6587\u4EF6 \u2192 \u4FDD\u5B58\uFF09" : "\u8D44\u6599\u5DEE\u5F02\uFF08\u6587\u4EF6 \u2192 \u4FDD\u7559\u7684\u672C\u5730\u8D44\u6599\uFF09") + "</p><ul>" + p.differences.map((d) => "<li>" + labels[d.field] + "\uFF1A" + value(d.field, d.incoming) + " \u2192 " + value(d.field, d.local) + "</li>").join("") + "</ul>" : '<p class="muted">' + (p.status === "added" ? "\u5DF2\u52A0\u5165\u7403\u5458\u5E93" : "\u8D44\u6599\u4E00\u81F4") + "</p>") + "</section>").join("") + (!result.playerDetails.length ? '<p class="muted">\u6CA1\u6709\u65B0\u589E\u6216\u5408\u5E76\u7684\u7403\u5458\uFF1B\u91CD\u590D\u6BD4\u8D5B\u4E0D\u518D\u5904\u7406\u7403\u5458\u8D44\u6599\u3002</p>' : "") + "</details><details><summary>\u6BD4\u8D5B\u660E\u7EC6 \xB7 " + result.gameDetails.length + " \u573A</summary>" + result.gameDetails.map((g) => "<p><b>" + esc2(g.teams) + "</b><br><small>" + esc2(new Date(g.startedAt).toLocaleString("zh-CN")) + " \xB7 " + (g.status === "added" ? "\u5DF2\u5BFC\u5165" : "\u91CD\u590D\uFF0C\u5DF2\u8DF3\u8FC7") + "</small></p>").join("") + "</details>";
+  }
+
   // app/src/main/assets/web/roster.js
-  var normalizeName = (value) => String(value || "").normalize("NFKC").replace(/\s+/g, "").toLocaleLowerCase();
+  var normalizeName = (value) => String(value || "").normalize("NFKC").replace(/\s+/g, "").toLowerCase();
   function validatePlayer(players2, player) {
     var _a;
     if (!((_a = player.name) == null ? void 0 : _a.trim())) throw Error("\u8BF7\u8F93\u5165\u59D3\u540D");
@@ -1540,6 +1573,7 @@
     return { format: "diamond-notebook", version: 1, exportedAt: (/* @__PURE__ */ new Date()).toISOString(), players: db2.players.filter((p) => ids.has(p.id)).map(clone), games };
   }
   function importArchive(db2, text) {
+    var _a;
     if (text.length > 20 * 1024 * 1024) throw Error("JSON \u6587\u4EF6\u8FC7\u5927\uFF08\u4E0A\u9650 20 MB\uFF09");
     const data = JSON.parse(text);
     if (data.format !== "diamond-notebook" || data.version !== 1 || !Array.isArray(data.games) || !Array.isArray(data.players)) throw Error("\u4E0D\u662F\u6709\u6548\u7684\u94BB\u77F3\u8BB0\u5206\u6BD4\u8D5B\u6587\u4EF6");
@@ -1548,12 +1582,15 @@
       if (typeof p.id !== "string" || !p.id || typeof p.name !== "string" || !p.name.trim() || p.name.length > 100 || incoming.has(p.id)) throw Error("\u7403\u5458\u4FE1\u606F\u65E0\u6548\u6216\u91CD\u590D");
       incoming.set(p.id, p);
     }
+    const playerDetails = [], gameDetails = [];
     let count = 0, skipped = 0;
     for (const raw of data.games) {
       const g = clone(raw), key = archiveId(g);
       if (g.archiveId !== key) throw Error("\u6BD4\u8D5B\u8EAB\u4EFD\u4E0E\u5F00\u59CB/\u7ED3\u675F\u65F6\u95F4\u4E0D\u4E00\u81F4");
+      const gameDetail = { teams: ((_a = g.teams) == null ? void 0 : _a.map((t) => t.name).join(" vs ")) || "\u6BD4\u8D5B", startedAt: g.startedAt };
       if (existing.has(key)) {
         skipped++;
+        gameDetails.push({ ...gameDetail, status: "skipped" });
         continue;
       }
       if (!["baseball", "softball"].includes(g.sport) || !Array.isArray(g.teams) || g.teams.length !== 2 || !Array.isArray(g.events) || g.events.length > 1e5) throw Error("\u6BD4\u8D5B\u7ED3\u6784\u65E0\u6548");
@@ -1564,6 +1601,7 @@
         const p = incoming.get(id);
         if (!p) throw Error("\u6587\u4EF6\u7F3A\u5C11\u6BD4\u8D5B\u6240\u9700\u7684\u7403\u5458\u4FE1\u606F");
         let local = next.players.find((x) => normalizeName(x.name) === normalizeName(p.name));
+        const status = !local ? "added" : local.deleted ? "restored" : "merged";
         if (!local) {
           local = { id: uid(), name: p.name.trim(), number: String(p.number || "").slice(0, 8), bats: ["L", "R", "S"].includes(p.bats) ? p.bats : "R", throws: ["L", "R"].includes(p.throws) ? p.throws : "R" };
           next.players.push(local);
@@ -1572,6 +1610,14 @@
           local.deleted = false;
           restored.push(local.name);
         }
+        const differences = ["name", "number", "bats", "throws"].filter((k) => {
+          var _a2, _b;
+          return String((_a2 = p[k]) != null ? _a2 : "") !== String((_b = local[k]) != null ? _b : "");
+        }).map((field2) => {
+          var _a2, _b;
+          return { field: field2, incoming: String((_a2 = p[field2]) != null ? _a2 : ""), local: String((_b = local[field2]) != null ? _b : "") };
+        });
+        playerDetails.push({ incomingId: id, localId: local.id, incomingName: p.name, localName: local.name, status, differences });
         map.set(id, local.id);
       }
       const remap = (o, k) => {
@@ -1603,8 +1649,9 @@
       next.games.push(g);
       existing.add(key);
       count++;
+      gameDetails.push({ ...gameDetail, status: "added" });
     }
-    return { db: next, count, skipped, added, restored };
+    return { db: next, count, skipped, added, restored, playerDetails, gameDetails };
   }
   function downloadJson(data, name2) {
     const text = JSON.stringify(data, null, 2);
@@ -1947,7 +1994,7 @@
     return "<h3>\u6253\u51FB\u6570\u636E</h3>" + table(ids, stats, batting) + "<details><summary>\u5B88\u5907\u6570\u636E</summary>" + table(ids, stats, fielding) + "</details>" + (pitchers.length ? "<details><summary>\u6295\u7403\u6570\u636E</summary>" + table(pitchers, stats, pitching) + "</details>" : "");
   }
   function home() {
-    return `${header("\u94BB\u77F3\u8BB0\u5206", btn("\u8F6F\u4EF6\u4F5C\u8005", "author", "", "ghost fit"))}<section class="hero"><div class="eyebrow">DIAMOND NOTEBOOK</div><h1>\u4E13\u6CE8\u6BD4\u8D5B\u3002<br>\u8BB0\u4E0B\u6BCF\u4E00\u4E2A\u77AC\u95F4\u3002</h1><p>\u4ECE\u7B2C\u4E00\u7403\u5230\u6700\u540E\u4E00\u4E2A\u51FA\u5C40\uFF0C<br>\u4F60\u7684\u7403\u573A\u8BB0\u5F55\u7C3F\u3002</p><div class="mark">\u25C7</div></section>${db.active ? `<div class="card row"><div><b>\u6709\u4E00\u573A\u6BD4\u8D5B\u6B63\u5728\u8FDB\u884C</b><p class="muted">\u6240\u6709\u6295\u7403\u4E0E\u672A\u5B8C\u6210\u6B65\u9AA4\u5DF2\u4FDD\u5B58</p></div>${btn("\u7EE7\u7EED\u8BB0\u5F55", "resume", "", "primary fit")}</div>` : ""}<div class="grid">${btn("\u25C9<b>\u7403\u5458</b><span>\u6CE8\u518C \xB7 \u7EDF\u8BA1 \xB7 \u5BFC\u51FA</span>", "players", "", "homebtn")}${btn("\u26BE<b>\u5F00\u59CB\u68D2\u7403\u6BD4\u8D5B</b><span>\u6807\u51C6\u9010\u7403\u8BB0\u5206</span>", "setup", 'data-sport="baseball"', "homebtn primary")}${btn("\u25C7<b>\u5F00\u59CB\u5792\u7403\u6BD4\u8D5B</b><span>\u6162\u6295 \xB7 1\u20131 \u8D77\u59CB\u7403\u6570</span>", "setup", 'data-sport="softball"', "homebtn")}${btn("\u25A4<b>\u8BB0\u5F55\u67E5\u770B</b><span>\u8D5B\u540E\u56DE\u987E \xB7 \u5168\u90E8\u6295\u7403</span>", "history", "", "homebtn")}</div>`;
+    return `${header("\u94BB\u77F3\u8BB0\u5206", btn("\u8F6F\u4EF6\u4F5C\u8005", "author", "", "ghost fit"))}<section class="hero"><div class="eyebrow">DIAMOND NOTEBOOK</div><h1>\u4E13\u6CE8\u6BD4\u8D5B\u3002<br>\u8BB0\u4E0B\u6BCF\u4E00\u4E2A\u77AC\u95F4\u3002</h1><p>\u4ECE\u7B2C\u4E00\u7403\u5230\u6700\u540E\u4E00\u4E2A\u51FA\u5C40\uFF0C<br>\u4F60\u7684\u7403\u573A\u8BB0\u5F55\u7C3F\u3002</p><div class="mark">\u25C7</div></section>${db.active ? `<div class="card row"><div><b>\u6709\u4E00\u573A\u6BD4\u8D5B\u6B63\u5728\u8FDB\u884C</b><p class="muted">\u6240\u6709\u6295\u7403\u4E0E\u672A\u5B8C\u6210\u6B65\u9AA4\u5DF2\u4FDD\u5B58</p></div>${btn("\u7EE7\u7EED\u8BB0\u5F55", "resume", "", "primary fit")}</div>` : ""}<div class="grid">${btn(homeArt("players") + "<b>\u7403\u5458</b><span>\u6CE8\u518C \xB7 \u7EDF\u8BA1 \xB7 \u5BFC\u51FA</span>", "players", "", "homebtn")}${btn(homeArt("baseball") + "<b>\u5F00\u59CB\u68D2\u7403\u6BD4\u8D5B</b><span>\u6807\u51C6\u9010\u7403\u8BB0\u5206</span>", "setup", 'data-sport="baseball"', "homebtn home-baseball")}${btn(homeArt("softball") + "<b>\u5F00\u59CB\u5792\u7403\u6BD4\u8D5B</b><span>\u6162\u6295 \xB7 1\u20131 \u8D77\u59CB\u7403\u6570</span>", "setup", 'data-sport="softball"', "homebtn home-softball")}${btn(homeArt("history") + "<b>\u8BB0\u5F55\u67E5\u770B</b><span>\u8D5B\u540E\u56DE\u987E \xB7 \u5168\u90E8\u6295\u7403</span>", "history", "", "homebtn")}</div>`;
   }
   function players() {
     const matches = db.players.filter((p) => !p.deleted && normalizeName(p.name).includes(normalizeName(playerQuery))), pages = Math.max(1, Math.ceil(matches.length / 20)), current = playerPage = Math.min(pages, Math.max(1, playerPage)), people = matches.slice((current - 1) * 20, current * 20), st = totals(db.games.filter((g) => gameYear(g) === season), sport);
@@ -2178,7 +2225,7 @@
       page = "history";
       historyYear = years(db.games)[0] || historyYear;
       render();
-      dialog("<h2>\u5BFC\u5165\u5B8C\u6210</h2><p>\u65B0\u589E " + result.count + " \u573A\uFF0C\u8DF3\u8FC7\u91CD\u590D " + result.skipped + " \u573A\u3002</p>" + (result.added.length ? "<p>\u5DF2\u52A0\u5165\u7403\u5458\u5E93\uFF1A" + esc(result.added.join("\u3001")) + "</p>" : "") + (result.restored.length ? "<p>\u5DF2\u6062\u590D\u7403\u5458\uFF1A" + esc(result.restored.join("\u3001")) + "</p>" : "") + btn("\u5173\u95ED", "close"));
+      dialog(importSummary(result, esc) + btn("\u5173\u95ED", "close"));
     } catch (e) {
       db = before;
       toast("\u5BFC\u5165\u5931\u8D25\uFF1A" + e.message);

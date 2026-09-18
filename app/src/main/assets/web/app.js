@@ -1,4 +1,6 @@
 import {specialMenu,specialDialog,handleSpecial} from './special-ui.js';
+import {homeArt} from './home-art.js';
+import {importSummary} from './import-summary.js';
 import { throwingPathLabel } from './throwing-path.js';
 import {recordSheets,plateRecords,lineupRows,substitutionRows} from './plate-records.js';
 let logIndex=null, subMode="defense";
@@ -134,7 +136,7 @@ function statsSections(ids, stats) {
   );
 }
 function home() {
-  return `${header("钻石记分", btn("软件作者", "author", "", "ghost fit"))}<section class="hero"><div class="eyebrow">DIAMOND NOTEBOOK</div><h1>专注比赛。<br>记下每一个瞬间。</h1><p>从第一球到最后一个出局，<br>你的球场记录簿。</p><div class="mark">◇</div></section>${db.active ? `<div class="card row"><div><b>有一场比赛正在进行</b><p class="muted">所有投球与未完成步骤已保存</p></div>${btn("继续记录", "resume", "", "primary fit")}</div>` : ""}<div class="grid">${btn("◉<b>球员</b><span>注册 · 统计 · 导出</span>", "players", "", "homebtn")}${btn("⚾<b>开始棒球比赛</b><span>标准逐球记分</span>", "setup", 'data-sport="baseball"', "homebtn primary")}${btn("◇<b>开始垒球比赛</b><span>慢投 · 1–1 起始球数</span>", "setup", 'data-sport="softball"', "homebtn")}${btn("▤<b>记录查看</b><span>赛后回顾 · 全部投球</span>", "history", "", "homebtn")}</div>`;
+  return `${header("钻石记分", btn("软件作者", "author", "", "ghost fit"))}<section class="hero"><div class="eyebrow">DIAMOND NOTEBOOK</div><h1>专注比赛。<br>记下每一个瞬间。</h1><p>从第一球到最后一个出局，<br>你的球场记录簿。</p><div class="mark">◇</div></section>${db.active ? `<div class="card row"><div><b>有一场比赛正在进行</b><p class="muted">所有投球与未完成步骤已保存</p></div>${btn("继续记录", "resume", "", "primary fit")}</div>` : ""}<div class="grid">${btn(homeArt("players")+"<b>球员</b><span>注册 · 统计 · 导出</span>", "players", "", "homebtn")}${btn(homeArt("baseball")+"<b>开始棒球比赛</b><span>标准逐球记分</span>", "setup", 'data-sport="baseball"', "homebtn home-baseball")}${btn(homeArt("softball")+"<b>开始垒球比赛</b><span>慢投 · 1–1 起始球数</span>", "setup", 'data-sport="softball"', "homebtn home-softball")}${btn(homeArt("history")+"<b>记录查看</b><span>赛后回顾 · 全部投球</span>", "history", "", "homebtn")}</div>`;
 }
 function players() {
   const matches = db.players.filter((p) => !p.deleted && normalizeName(p.name).includes(normalizeName(playerQuery))),
@@ -384,7 +386,7 @@ function exportStats(groups, title, meta = {}) {
 
 window.receiveArchive = text => {
   const before=clone(db);
-  try{const result=importArchive(db,text);db=result.db;save();page='history';historyYear=years(db.games)[0]||historyYear;render();dialog('<h2>导入完成</h2><p>新增 '+result.count+' 场，跳过重复 '+result.skipped+' 场。</p>'+(result.added.length?'<p>已加入球员库：'+esc(result.added.join('、'))+'</p>':'')+(result.restored.length?'<p>已恢复球员：'+esc(result.restored.join('、'))+'</p>':'')+btn('关闭','close'));}catch(e){db=before;toast('导入失败：'+e.message);}
+  try{const result=importArchive(db,text);db=result.db;save();page='history';historyYear=years(db.games)[0]||historyYear;render();dialog(importSummary(result,esc)+btn('关闭','close'));}catch(e){db=before;toast('导入失败：'+e.message);}
 };
 window.goHome = () => {
   save();

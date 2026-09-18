@@ -2,7 +2,7 @@ export const normalizeName = (value) =>
   String(value || "")
     .normalize("NFKC")
     .replace(/\s+/g, "")
-    .toLocaleLowerCase();
+    .toLowerCase();
 export function validatePlayer(players, player) {
   if (!player.name?.trim()) throw Error("请输入姓名");
   if (
