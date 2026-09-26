@@ -1,3 +1,4 @@
+import {fairDialog} from './fair-ui.js';
 import { specialNames } from './special-engine.js';
 import { throwingPathLabel } from './throwing-path.js';
 import {plateRecords,resultLines,pitchLabel} from './plate-records.js';
@@ -57,43 +58,11 @@ export function score(s, ended, esc, players = "") {
 export function matchView(g,ctx){
  const {esc,name,btn,career}=ctx,s=replay(g),b=batter(s),p=pitcher(s),next=s.teams[s.side].lineup[(s.order[s.side]+1)%s.teams[s.side].lineup.length].id;
  const batting=id=>{const logs=s.log.filter(l=>l.terminal&&(l.creditedBatter||l.batter)===id),hits=logs.filter(l=>l.result==='H').length,tags=logs.map(l=>l.result==='H'?(l.play.hitBases===4?'HR':l.play.hitBases+'B'):l.result==='SO'?'K':l.result);return hits+'-'+logs.length+(tags.length?' '+tags.join(', '):'');};
- const batterCard=(id,label)=>'<div class="score-person"><small>'+label+'</small><b title="'+esc(name(id))+'">'+esc(name(id))+'</b><span>历史 AVG '+(career[id]?.AVG||0).toFixed(3)+'</span><span title="'+esc(batting(id))+'">'+esc(batting(id))+'</span></div>';
- const ps=rates(s.stats[p],g.sport),cards='<div class="score-players">'+batterCard(b,'当前打者')+batterCard(next,'下一位打者')+'<div class="score-person"><small>投手</small><b title="'+esc(name(p))+'">'+esc(name(p))+'</b><span>P-S '+ps['P-S']+'</span><span>历史 ERA '+(career[p]?.ERA||0).toFixed(2)+'</span></div></div>';
+ const batterCard=(id,label)=>'<div class="score-person"><small>'+label+'</small><b title="'+esc(name(id))+'">'+esc(name(id))+'</b><span>AVG '+(career[id]?.AVG||0).toFixed(3)+'</span><span title="'+esc(batting(id))+'">'+esc(batting(id))+'</span></div>';
+ const ps=rates(s.stats[p],g.sport),cards='<div class="score-players">'+batterCard(b,'当前打者')+batterCard(next,'下一位打者')+'<div class="score-person"><small>投手</small><b title="'+esc(name(p))+'">'+esc(name(p))+'</b><span>P-S '+ps['P-S']+'</span><span>ERA '+(career[p]?.ERA||0).toFixed(2)+'</span></div></div>';
  return score(s,g.ended,esc,cards)+'<div class="live-field"><div class="field-center">'+defenseField(s,ctx)+'</div></div>'+(s.halfEnded?'<div class="half-actions"><span>三出局 · 半局结束</span><div class="row">'+btn('开启下个半局','half','','primary')+btn('结束比赛','end','','danger')+'</div></div>':'<div class="pitch-actions">'+btn('B<small>坏球</small>','pitch','data-kind="ball"')+btn('S<small>好球</small>','pitch','data-kind="strike"')+btn('Foul<small>界外</small>','pitch','data-kind="foul"')+btn('Fair<small>界内</small>','contact','','primary')+'</div><div class="special-entry">'+btn('裁判判罚','ruling')+btn('特殊情况','specialMenu')+'</div>')+'<div class="record-tools">'+btn('撤销记录','undo',canUndo(g)?'':'disabled','ghost')+btn('逐打席记录','showLog','','ghost')+'<div class="sub-tools">'+btn('守备换人','sub','','ghost')+btn('进攻换人','offenseSub','','ghost')+'</div></div><div class="last-play">'+esc(s.log.at(-1)?.summary||'准备就绪，开始记录当前打席')+'</div>';
 }
-export function playDialog(g, ctx) {
-  const { btn, esc, name } = ctx,
-    s = replay(g),
-    d = g.draft,
-    fielders = s.teams[1 - s.side].lineup.filter(isDefender),
-    fopts = (value) =>
-      fielders
-        .map(
-          (p) =>
-            `<option value="${p.id}" ${p.id === value ? "selected" : ""}>${p.pos} · ${esc(name(p.id))}</option>`,
-        )
-        .join("");
-  if (!d.result)
-    return `<h2>野手处理</h2><label>处理球的野手</label><select id="fielder" data-contact-fielder>${fopts(d.fielder)}</select><div class="contact-options"><div class="contact-row catches">${btn("高飞接杀", "result", 'data-value="catch" data-trajectory="fly"', "primary")}${btn("平飞接杀", "result", 'data-value="catch" data-trajectory="line"', "primary")}${btn("内野高飞", "result", 'data-value="catch" data-trajectory="popup"', "primary")}</div><div class="contact-row stops">${btn("地滚拦截", "result", 'data-value="stop" data-trajectory="ground"')}${btn("平飞拦截", "result", 'data-value="stop" data-trajectory="line"')}</div>${btn("处理失误", "result", 'data-value="error"', "gold wide")}<div class="contact-row awards">${[1,2,3,4].map(n=>btn(n===4?'<span>全垒</span><span>打</span>':'<span>场地</span><span>'+['','一','二','三'][n]+'垒</span>', 'award', 'data-n="'+n+'"', 'primary')).join('')}</div></div>`;
-  const q = runnerQueue(s).filter(
-      (r) => r.from || !["catch", "infieldFly"].includes(d.result),
-    ),
-    r = q.find((r) => !d.actions.some((a) => a.id === r.id));
-  if (d.outForm) {
-    const f = d.outForm,
-      shown = replay(g, true);
-    return `<h2>${f.mode === "force" ? "封杀" : "触杀"} · ${esc(name(f.id))}</h2>${f.mode === "force" ? `<label>出局垒包</label><select id="outbase">${forceBases(s,f.id,d.result).map((n) => `<option value="${n}">${["", "一垒", "二垒", "三垒", "本垒"][n]}</option>`).join("")}</select>` : ""}<label>完成刺杀的野手</label><select id="putout">${fopts(d.fielder)}</select>${shown.o === 2 ? `<label>已记录的得分跑者与本次出局的先后</label><select id="outTiming"><option value="after">出局在先 / 未确认得分在先</option><option value="before">跑者先回本垒，再发生出局</option></select>` : ""}${btn("确认出局", "runnerOut", `data-id="${f.id}" data-mode="${f.mode}"`, "danger")}${btn("返回跑者", "cancelOut")}`;
-  }
-  if (r) {
-    const limit = advanceLimit(s, d.actions, r.id),
-      pending = d.pending || {},
-      isError = d.result === "error" && !r.from,
-      normal = pending.advance ?? (isError ? 0 : r.from ? 0 : 1),
-      showError = d.errorOpen || isError;
-    return `<h2>跑者处理 · ${esc(name(r.id))}</h2><div class="runner-mini">${field(s)}</div><p class="muted">${r.from ? ["", "一垒", "二垒", "三垒"][r.from] : "打者"} · ${q.findIndex((x) => x.id === r.id) + 1}/${q.length}　按前位至后位处理</p><label>正常击球到达垒包</label><select id="normalAdvance" data-normal-advance>${Array.from({ length: (isError?0:Math.max(0, limit)) + 1 }, (_, n) => `<option value="${n}" ${n === normal ? "selected" : ""}>${n === 0 ? (r.from ? `停留${["","一垒","二垒","三垒"][r.from]}` : "未因击球上垒") : `到达${["","一垒","二垒","三垒","本垒"][r.from+n]}`}</option>`).join("")}</select>${btn(showError ? "取消额外失误" : "因失误进垒", "toggleError", "", "gold")}${showError ? `<div class="error-box"><label>失误野手</label><select id="errorFielder" data-error-fielder>${fopts(pending.errorFielder || d.fielder)}</select><label>因失误最终到达垒包</label><select id="errorAdvance" data-error-advance>${Array.from({ length: Math.max(0, limit - normal) }, (_, i) => `<option value="${i + 1}" ${pending.errorAdvance === i + 1 ? "selected" : ""}>到达${["","一垒","二垒","三垒","本垒"][r.from+normal+i+1]}</option>`).join("")}</select></div>` : ""}<div class="actions">${btn("确认跑者", "saveRunner", `data-id="${r.id}"`, "primary wide")}${btn("被封杀", "force", `data-id="${r.id}"`, "danger")}${btn("被触杀", "tag", `data-id="${r.id}"`, "danger")}</div>`;
-  }
-  return resultPanel(g,ctx);
-}
+export function playDialog(g,ctx){return fairDialog(g,ctx) ?? resultPanel(g,ctx);}
 export function resultPanel(g,ctx){
  const {esc,btn}=ctx,last=replay(g,true).log.at(-1),pending=g.pendingPitch;
  const body='<h2>'+(pending?.type==='special'&&!last?.terminal?(specialNames[pending.kind]+'结果'):pending?.type==='ruling'?'判罚确认':'本打席结果')+'</h2><div class="result-only"><h3>'+esc((last?.summary||'').replace(/ \/ 0 RBI/g,''))+'</h3><div class="runner-summary">'+resultLines(last,id=>ctx.name(id)+' #'+(ctx.player(id)?.number||'—')).map(line=>'<p>'+esc(line)+'</p>').join('')+'</div></div>';

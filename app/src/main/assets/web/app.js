@@ -1,3 +1,4 @@
+import {handleFair,installRunnerDrag} from './fair-ui.js';
 import {specialMenu,specialDialog,handleSpecial} from './special-ui.js';
 import {homeArt} from './home-art.js';
 import {importSummary} from './import-summary.js';
@@ -87,21 +88,13 @@ function save() {
       throw Error("保存失败，请检查剩余空间");
   } else localStorage.setItem("diamond-v1", raw);
 }
+let toastTimer;
 function toast(s) {
-  const openDialog = document.querySelector("dialog[open]");
-  if (openDialog) {
-    let notice = openDialog.querySelector(".dialog-feedback");
-    if (!notice) {
-      notice = document.createElement("p");
-      notice.className = "dialog-feedback";
-      notice.setAttribute("role", "alert");
-      openDialog.prepend(notice);
-    }
-    notice.textContent = s;
-  }
-  $("#toast").textContent = s;
-  $("#toast").style.display = "block";
-  setTimeout(() => ($("#toast").style.display = "none"), 3000);
+  clearTimeout(toastTimer);
+  document.querySelectorAll('.notice-bubble').forEach(n=>n.remove());
+  const notice=document.createElement('div');notice.className='notice-bubble';notice.setAttribute('role','alert');notice.textContent=s;
+  (document.querySelector('dialog[open]')||document.body).append(notice);
+  toastTimer=setTimeout(()=>{notice.classList.add('fading');setTimeout(()=>notice.remove(),250);},3000);
 }
 function btn(label, action, data = "", cls = "") {
   return `<button class="${cls}" data-action="${action}" ${data}>${label}</button>`;
@@ -175,12 +168,24 @@ function ask(message) {
   });
 }
 function dialog(html) {
-  $("dialog")?.remove();
+  const old=$('dialog'),view=game()?.draft?(game().draft.phase||'contact')+(game().draft.runnerForm?'form':''):(panel||'');
+  const keep=old?.dataset.view===view,scroll=keep?old.querySelector('.dialog-body')?.scrollTop||0:0;
+  const pageScroll=window.scrollY;
+  old?.remove();
   const d = document.createElement("dialog");
   d.innerHTML = html;
+  d.dataset.view=view;
+  const overlay=d.querySelector('.fair-overlay');
+  if(overlay){
+    d.append(overlay);
+    for(const child of d.children)if(child!==overlay)child.setAttribute('inert','');
+    overlay.querySelector('[role="dialog"]')?.setAttribute('aria-modal','true');
+  }
   if(d.querySelector('.dialog-body'))d.classList.add('fixed-dialog');
   document.body.append(d);
   d.showModal();
+  if(overlay)overlay.querySelector('button')?.focus({preventScroll:true});
+  if(keep){const body=d.querySelector('.dialog-body');if(body)body.scrollTop=scroll;window.scrollTo(0,pageScroll);}
 }
 
 function setup() {
@@ -273,7 +278,10 @@ function matchModal() {
   if(g.specialDraft){dialog(specialDialog(g,context(g)));$('dialog').addEventListener('cancel',e=>e.preventDefault());return;}
   if (d) {
     const holder=document.createElement('div');holder.innerHTML=playDialog(g,context(g));
-    const confirm=holder.querySelector('[data-action="commitContact"]');const confirmHtml=confirm?.outerHTML||'';confirm?.remove();
+    const confirm=holder.querySelector('[data-action="commitContact"], [data-action="fairFormSave"], [data-action="fairStart"]');
+    let confirmHtml=confirm?.outerHTML||'';confirm?.remove();
+    const formBack=holder.querySelector('[data-action="fairFormCancel"]');formBack?.parentElement.remove();
+    const runActions=holder.querySelector('.fair-run-actions');if(runActions){confirmHtml=runActions.outerHTML;runActions.remove();}
     dialog('<div class="dialog-body">'+holder.innerHTML+'</div><div class="dialog-actions">'+confirmHtml+'<div class="row">'+btn('上一步','draftBack','','ghost')+btn('取消本球','cancelDraft','','ghost')+'</div></div>');
     $("dialog").addEventListener("cancel", (e) => e.preventDefault());
   }
@@ -413,6 +421,7 @@ async function action(a, v = {}) {
       panel=null;
       if(handleSpecial(a,v,g,{$,updateGame,close:()=>{$('dialog')?.close();panel=null;}})){save();render();return;}
     }
+    if(handleFair(a,v,g,$)){save();render();return;}
     switch (a) {
       case 'specialMenu':
         if(g.draft||g.pendingPitch||g.specialDraft)throw Error('请先确认或取消当前记录');
@@ -714,19 +723,10 @@ async function action(a, v = {}) {
       }
 
       case "draftBack": {
-        const d = g.draft;
-        d.actions = d.actions.filter(a => !a.automatic);
-        if(d.awardBases){delete d.awardBases;d.actions=[];delete d.result;delete d.trajectory;break;}
-        d.pending = null;
-        d.errorOpen = false;
-        d.outForm = null;
-        if (d.actions.length) {
-          d.actions.pop();
-          delete d.scoring;
-          delete d.rbi;
-        } else if (d.result) { delete d.result; delete d.trajectory; delete d.zone; }
-        else { g.draft = null; $("dialog")?.close(); }
-        break;
+        const d=g.draft;
+        if(d.runnerForm){d.runnerForm=null;d.selectedRunner=null;break;}
+        if(d.phase==='review'&&!d.awardBases){d.phase='runners';break;}
+        d.phase='contact';d.actions=[];delete d.awardBases;d.selectedRunner=null;break;
       }
       case "cancelDraft":
         if (!(await ask("取消当前尚未确认的投球录入？"))) return;
@@ -918,7 +918,7 @@ document.addEventListener("change", (e) => {
       if (el.value === "") delete d.rbi;
       else d.rbi = Math.min(4, Math.max(0, Math.floor(+el.value)));
     }
-    if (d?.result) replay(game(), true);
+    if (d?.result && d.phase==='review') replay(game(), true);
     save();
     render();
   } catch (err) {
@@ -995,3 +995,5 @@ document.addEventListener('touchend',e=>{if(!plateTouch)return;const t=plateTouc
 let plateMouse=null;
 document.addEventListener('pointerdown',e=>{if(e.pointerType!=='mouse')return;const el=e.target.closest('[data-plate-index]');plateMouse=el?{x:e.clientX,y:e.clientY,index:Number(el.dataset.plateIndex)}:null;});
 document.addEventListener('pointerup',e=>{if(!plateMouse)return;const t=plateMouse;plateMouse=null;const dx=e.clientX-t.x,dy=e.clientY-t.y;const g=db.games.find(g=>g.id===(panelGameId||db.active));const index=t.index+(dx<0?1:-1);if(Math.abs(dx)>50&&Math.abs(dx)>Math.abs(dy)&&g&&index>=0&&index<plateRecords(g).length)action('logMove',{index});});
+
+installRunnerDrag(action);

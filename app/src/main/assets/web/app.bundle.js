@@ -68,7 +68,7 @@
       return;
     }
     let result = "SPECIAL", summary2 = specialNames[e.kind], terminal = false, actions = [], runs = [], outs = [], errors = /* @__PURE__ */ new Set();
-    let queue = beforeBases.slice(), source = e.actions || [];
+    let queue2 = beforeBases.slice(), source = e.actions || [];
     if (["wp", "pb"].includes(e.kind)) {
       if (!beforeBases.length) throw Error("\u5F53\u524D\u6CA1\u6709\u5792\u4E0A\u8DD1\u8005");
       add2(s, p, "P");
@@ -81,7 +81,7 @@
     }
     if (e.kind === "balk") {
       add2(s, p, "BK");
-      source = queue.map((r) => ({ id: r.id, mode: "advance", advance: 1 }));
+      source = queue2.map((r) => ({ id: r.id, mode: "advance", advance: 1 }));
     }
     if (e.kind === "pickoff") {
       const target = beforeBases.find((r) => r.from === e.base);
@@ -90,11 +90,11 @@
       add2(s, p, "PICK");
       if (e.putout) {
         requireFielder(e.putout);
-        source = queue.map((r) => r.id === target.id ? { id: r.id, mode: "tag", putout: e.putout, assist: p } : { id: r.id, mode: "advance", advance: 0 });
+        source = queue2.map((r) => r.id === target.id ? { id: r.id, mode: "tag", putout: e.putout, assist: p } : { id: r.id, mode: "advance", advance: 0 });
       } else if (e.errorFielder) {
         requireFielder(e.errorFielder);
         errors.add(e.errorFielder);
-      } else source = queue.map((r) => ({ id: r.id, mode: "advance", advance: 0 }));
+      } else source = queue2.map((r) => ({ id: r.id, mode: "advance", advance: 0 }));
     }
     if (e.kind === "steal" && !beforeBases.length) throw Error("\u5F53\u524D\u6CA1\u6709\u5792\u4E0A\u8DD1\u8005");
     if (e.kind === "droppedThird") {
@@ -104,7 +104,7 @@
         add2(s, catcher, "PB");
         summary2 = "\u6355\u9038 \xB7 \u4E0D\u6B7B\u4E09\u632F";
       }
-      queue = [...queue, br];
+      queue2 = [...queue2, br];
       terminal = true;
       result = "SO";
       plate2(s, id, p, "SO");
@@ -122,7 +122,7 @@
       add2(s, p, "STR");
       out2(s, p, e.fielder);
       outs.push({ ...br, mode: "catch", putout: e.fielder });
-      source = queue.map((r) => ({ id: r.id, mode: "advance", advance: 0 }));
+      source = queue2.map((r) => ({ id: r.id, mode: "advance", advance: 0 }));
     }
     if (e.kind === "interference") {
       if (!catcher) throw Error("\u8BF7\u6307\u5B9A\u6355\u624B");
@@ -138,8 +138,8 @@
         if (!s.bases[base - 1]) forced = false;
         advances.set(base, forced ? 1 : 0);
       }
-      queue = [...queue, br];
-      source = queue.map((r) => ({ id: r.id, mode: "advance", advance: r.from ? advances.get(r.from) : 1 }));
+      queue2 = [...queue2, br];
+      source = queue2.map((r) => ({ id: r.id, mode: "advance", advance: r.from ? advances.get(r.from) : 1 }));
     }
     const pitchBall = e.kind === "wp" || e.kind === "pb" && e.pitchResult !== "strike";
     if (pitchBall) s.b++;
@@ -158,7 +158,7 @@
     }
     const dest = /* @__PURE__ */ new Map();
     let limit = 4;
-    for (const r of queue) {
+    for (const r of queue2) {
       if (s.o >= 3) {
         actions.push({ ...r, mode: "inningEnd" });
         continue;
@@ -207,7 +207,7 @@
         limit = to - 1;
       }
     }
-    if (source.some((a) => !queue.some((r) => r.id === a.id)) || new Set(source.map((a) => a.id)).size !== source.length) throw Error("\u8DD1\u8005\u8BB0\u5F55\u65E0\u6548\u6216\u91CD\u590D");
+    if (source.some((a) => !queue2.some((r) => r.id === a.id)) || new Set(source.map((a) => a.id)).size !== source.length) throw Error("\u8DD1\u8005\u8BB0\u5F55\u65E0\u6548\u6216\u91CD\u590D");
     for (const f of errors) {
       add2(s, f, "E");
       s.score[1 - s.side].E++;
@@ -991,6 +991,10 @@
       beforeBases,
       play,
       time: e.time || null,
+      location: e.location,
+      handlingResult: e.result,
+      handlingFielder: e.fielder,
+      awardBases: e.awardBases,
       zone: e.zone,
       trajectory: e.trajectory,
       throwingPath: e.throwingPath || ""
@@ -1159,6 +1163,189 @@
     );
   }
 
+  // app/src/main/assets/web/fair-ui.js
+  var trajectories = { fly: "\u9AD8\u98DE\u7403", line: "\u5E73\u98DE\u7403", ground: "\u5730\u6EDA\u7403", popup: "pop-up" };
+  var outcomes = { catch: "\u63A5\u6740", stop: "\u843D\u5730", error: "\u5931\u8BEF" };
+  var zones = [["\u5DE6\u5916", "\u4E2D\u5DE6\u5916", "\u4E2D\u5916", "\u4E2D\u53F3\u5916", "\u53F3\u5916"], ["\u4E09\u5792\u8FB9\u7EBF", "\u4E09\u6E38\u95F4", "\u4E2D\u8DEF", "\u4E00\u4E8C\u5792\u95F4", "\u4E00\u5792\u8FB9\u7EBF"], ["\u5185\u91CE\u6D45\u5C42"]];
+  var defaults = ["\u5DE6\u5916\u91CE", "\u5DE6\u5916\u91CE", "\u4E2D\u5916\u91CE", "\u53F3\u5916\u91CE", "\u53F3\u5916\u91CE", "\u4E09\u5792\u624B", "\u6E38\u51FB\u624B", "\u4E8C\u5792\u624B", "\u4E8C\u5792\u624B", "\u4E00\u5792\u624B", "\u6295\u624B"];
+  var colors = ["#176ab4", "#b4510d", "#8b43b1", "#167b57"];
+  var points = [[50, 84], [84, 50], [50, 16], [16, 50], [50, 84]];
+  var contactText = (d) => (d.location ? d.location + (["\u5DE6\u5916", "\u4E2D\u5916", "\u53F3\u5916"].includes(d.location) ? "\u91CE" : "") + "\u65B9\u5411" : "") + (trajectories[d.trajectory] || "") + (d.awardBases ? "\u573A\u5730\u89C4\u5219" + ["", "\u4E00\u5792\u5B89\u6253", "\u4E8C\u5792\u5B89\u6253", "\u4E09\u5792\u5B89\u6253", "\u672C\u5792\u6253"][d.awardBases] : outcomes[d.result] || "");
+  var queue = (s, d) => runnerQueue(s).filter((r) => r.from || !["catch", "infieldFly"].includes(d.result));
+  var current = (r, d) => {
+    const a = d.actions.find((a2) => a2.id === r.id);
+    return r.from + ((a == null ? void 0 : a.advance) || 0) + ((a == null ? void 0 : a.errorAdvance) || 0);
+  };
+  function validateOrder(s, d) {
+    let lead = 5;
+    for (const r of queue(s, d)) {
+      const a = d.actions.find((a2) => a2.id === r.id);
+      if (["force", "tag"].includes(a == null ? void 0 : a.mode)) continue;
+      const dest = current(r, d);
+      if (lead < 4 && dest >= lead) throw Error("\u540E\u4F4D\u8DD1\u8005\u4E0D\u80FD\u8D85\u8FC7\u524D\u4F4D\uFF0C\u4E5F\u4E0D\u80FD\u5360\u636E\u540C\u4E00\u5792\u5305");
+      lead = dest;
+    }
+  }
+  function replace(d, a) {
+    d.actions = d.actions.filter((x) => x.id !== a.id);
+    d.actions.push(a);
+  }
+  function fairDialog(g, ctx) {
+    const { btn: btn2, esc: esc2, name: name2 } = ctx, d = g.draft, s = replay(g), q = queue(s, d);
+    const opts = (value) => s.teams[1 - s.side].lineup.filter(isDefender).map((p) => `<option value="${esc2(p.id)}" ${p.id === value ? "selected" : ""}>${p.pos} \xB7 ${esc2(name2(p.id))}</option>`).join("");
+    if (!d.phase || d.phase === "contact") return `<section class="fair-input"><h2>Fair \xB7 \u754C\u5185\u7403</h2><label>\u51FB\u7403\u4F4D\u7F6E</label>${zones.map((row) => `<div class="fair-row" style="--count:${row.length}">${row.map((z) => btn2(z, "fairZone", `data-value="${z}" aria-pressed="${d.location === z}"`, d.location === z ? "selected" : "")).join("")}</div>`).join("")}<hr><label>\u7403\u8DEF</label><div class="fair-row" style="--count:4">${Object.entries(trajectories).map(([k, v]) => btn2(v.replace("\u7403", ""), "fairTrajectory", `data-value="${k}" aria-pressed="${d.trajectory === k}"`, d.trajectory === k ? "selected" : "")).join("")}</div><hr><label>\u5904\u7406\u7ED3\u679C</label><div class="fair-row" style="--count:4">${Object.entries(outcomes).map(([k, v]) => btn2(v, "fairResult", `data-value="${k}" aria-pressed="${d.result === k}"`, d.result === k ? "selected" : "")).join("")}${btn2("\u573A\u5730\u89C4\u5219", "fairAwardMenu", 'aria-expanded="' + !!d.awardOpen + '"', d.awardOpen ? "selected" : "")}</div>${d.awardOpen ? `<div class="fair-overlay"><div class="fair-bubble" role="dialog" aria-label="\u573A\u5730\u89C4\u5219"><h3>\u573A\u5730\u89C4\u5219</h3><div class="fair-awards">${[1, 2, 3, 4].map((n) => btn2("\u573A\u5730\u89C4\u5219" + ["", "\u4E00\u5792\u5B89\u6253", "\u4E8C\u5792\u5B89\u6253", "\u4E09\u5792\u5B89\u6253", "\u672C\u5792\u6253"][n], "fairAward", `data-n="${n}"`)).join("")}</div>${btn2("\u8FD4\u56DE", "fairAwardMenu", "", "ghost wide")}</div></div>` : ""}<label>\u5904\u7406\u7403\u5458\uFF08\u6309\u4F4D\u7F6E\u9884\u9009\uFF0C\u53EF\u66F4\u6539\uFF09</label><select data-contact-fielder>${opts(d.fielder)}</select><p class="fair-preview" aria-live="polite">${esc2(contactText(d) || "\u9009\u62E9\u4F4D\u7F6E\u3001\u7403\u8DEF\u548C\u5904\u7406\u7ED3\u679C")}${d.result === "error" ? " \xB7 " + esc2(name2(d.fielder)) + " \u8BB0 E" : ""}</p>${btn2("\u786E\u8BA4\u672C\u7403", "fairStart", "", "primary wide")}</section>`;
+    if (d.phase === "review") return null;
+    if (d.runnerForm) {
+      const f = d.runnerForm, r = q.find((r2) => r2.id === f.id), at = current(r, d), limit = advanceLimit(s, d.actions, r.id) - (at - r.from);
+      return `<h2>${esc2(name2(f.id))} \xB7 ${f.mode === "error" ? "\u5931\u8BEF\u8FDB\u5792" : f.mode === "force" ? "\u5C01\u6740" : "\u89E6\u6740"}</h2>${f.mode === "error" ? `<p>\u4ECE${["\u6253\u51FB\u533A", "\u4E00\u5792", "\u4E8C\u5792", "\u4E09\u5792", "\u672C\u5792"][at]}\u7EE7\u7EED\u8FDB\u5792</p><label>\u5931\u8BEF\u8FDB\u5792\u6570\u91CF</label><select id="fairErrorBases">${Array.from({ length: Math.max(0, limit) }, (_, i) => `<option value="${i + 1}">${i + 1} \u4E2A\u5792</option>`).join("")}</select>` : f.mode === "force" ? `<label>\u5C01\u6740\u5792\u5305</label><select id="fairOutBase">${forceBases(s, f.id, d.result).map((n) => `<option value="${n}">${["", "\u4E00\u5792", "\u4E8C\u5792", "\u4E09\u5792", "\u672C\u5792"][n]}</option>`).join("")}</select>` : ""}<label>${f.mode === "error" ? "\u5931\u8BEF\u7403\u5458" : "\u5B8C\u6210\u523A\u6740\u7684\u7403\u5458"}</label><select id="fairPlayer">${opts(d.fielder)}</select>${f.mode !== "error" && s.o + (d.result === "catch" ? 1 : 0) + d.actions.filter((a) => ["force", "tag"].includes(a.mode)).length >= 2 ? '<label>\u5F97\u5206\u4E0E\u7B2C\u4E09\u51FA\u5C40\u7684\u5148\u540E</label><select id="fairTiming"><option value="after">\u51FA\u5C40\u5728\u5148 / \u672A\u786E\u8BA4\u5F97\u5206\u5728\u5148</option><option value="before">\u8DD1\u8005\u5148\u56DE\u672C\u5792</option></select>' : ""}<div class="row">${btn2("\u8FD4\u56DE", "fairFormCancel")}${btn2("\u786E\u8BA4", "fairFormSave", f.mode === "error" && limit <= 0 ? "disabled" : "", "primary")}</div>`;
+    }
+    return runningScene(s, d, ctx);
+  }
+  function runningScene(s, d, { btn: btn2, esc: esc2, name: name2 }) {
+    const q = queue(s, d);
+    const token = (r) => {
+      const dest = current(r, d), p = points[dest];
+      return `<button class="runner-token ${dest === 4 ? "scored-token" : ""}" data-runner="${esc2(r.id)}" data-action="fairRunner" data-id="${esc2(r.id)}" style="--runner-color:${colors[r.from]};${dest === 4 ? "" : `left:${p[0]}%;top:${p[1] - 8}%`}" title="${esc2(name2(r.id))}" aria-label="${esc2(name2(r.id))}\uFF0C${["\u6253\u8005", "\u4E00\u5792", "\u4E8C\u5792", "\u4E09\u5792", "\u5F97\u5206"][dest]}">${esc2(name2(r.id))}</button>`;
+    };
+    const alive = (r) => {
+      var _a;
+      return !["force", "tag"].includes((_a = d.actions.find((a) => a.id === r.id)) == null ? void 0 : _a.mode);
+    };
+    const path = (r, start, end, dashed) => {
+      const radius = 34 + (r.from - 1.5) * 6;
+      return end > start ? `<polyline points="${Array.from({ length: end - start + 1 }, (_, i) => points[start + i].map((v) => 50 + (v - 50) * radius / 34).join(",")).join(" ")}" fill="none" stroke="${colors[r.from]}" stroke-width="3.3" ${dashed ? 'stroke-dasharray="2 1"' : ""}/>` : "";
+    };
+    return `<h2>\u66F4\u65B0\u5792\u4E0A\u60C5\u51B5</h2><p class="fair-caption">\u62D6\u52A8\u81F3\u5792\u5305\u3001\u672C\u5792\u6216\u5F97\u5206\u6846\uFF1B\u70B9\u51FB\u7403\u5458\u8BB0\u5F55\u51FA\u5C40\u6216\u5931\u8BEF\u3002</p><div class="running-board"><div class="running-field"><svg viewBox="0 0 100 100" aria-hidden="true"><path d="M50 84L84 50L50 16L16 50Z" fill="#d9bd8d" stroke="#faf6e8" stroke-width="1"/>${q.map((r) => {
+      const a = d.actions.find((a2) => a2.id === r.id), normal = r.from + ((a == null ? void 0 : a.advance) || 0);
+      return path(r, r.from, normal, false) + path(r, normal, current(r, d), true);
+    }).join("")}</svg>${points.slice(1).map(([x, y], i) => `<div class="running-base" data-base="${i + 1}" aria-label="${["\u4E00\u5792", "\u4E8C\u5792", "\u4E09\u5792", "\u672C\u5792"][i]}" style="left:${x}%;top:${y}%"></div>`).join("")}${q.filter((r) => alive(r) && current(r, d) < 4).map(token).join("")}</div><div class="run-score-box" data-score-box aria-label="\u5F97\u5206\u6846"><b>\u5F97\u5206</b><div class="scored-runners">${q.filter((r) => alive(r) && current(r, d) === 4).map(token).join("")}</div></div></div>${d.selectedRunner ? `<div class="fair-overlay"><div class="fair-bubble runner-popover" role="dialog" aria-label="\u8DD1\u8005\u64CD\u4F5C"><b>${esc2(name2(d.selectedRunner))}</b><div class="fair-row" style="--count:3">${[["force", "\u5C01\u6740"], ["error", "\u5931\u8BEF\u8FDB\u5792"], ["tag", "\u89E6\u6740"]].map(([k, v]) => btn2(v, "fairForm", `data-mode="${k}"`)).join("")}</div>${btn2("\u8FD4\u56DE", "fairRunnerClose", "", "ghost wide")}</div></div>` : ""}<div class="runner-legend">${q.map((r) => `<span style="color:${colors[r.from]}">\u25CF ${["\u6253\u8005", "\u4E00\u5792\u51FA\u53D1", "\u4E8C\u5792\u51FA\u53D1", "\u4E09\u5792\u51FA\u53D1"][r.from]} ${esc2(name2(r.id))}${alive(r) ? "" : "\uFF08\u51FA\u5C40\uFF09"}</span>`).join("")}</div><div class="row fair-run-actions">${btn2("\u91CD\u7F6E", "fairReset")}${btn2("\u786E\u8BA4", "fairConfirm", "", "primary")}</div>`;
+  }
+  function handleFair(a, v, g, $2) {
+    var _a;
+    if (!a.startsWith("fair")) return false;
+    const d = g.draft, s = replay(g);
+    if (a === "fairZone") {
+      d.location = v.value;
+      d.zone = zones[0].includes(v.value) ? "\u5916\u91CE" : "\u5185\u91CE";
+      d.fielder = (_a = s.teams[1 - s.side].lineup.find((p) => p.pos === defaults[zones.flat().indexOf(v.value)])) == null ? void 0 : _a.id;
+    }
+    if (a === "fairTrajectory") d.trajectory = v.value;
+    if (a === "fairResult") {
+      d.result = v.value;
+      d.awardOpen = false;
+    }
+    if (a === "fairAwardMenu") d.awardOpen = !d.awardOpen;
+    if (a === "fairStart" || a === "fairAward") {
+      if (!d.location || !d.trajectory) throw Error("\u8BF7\u5148\u9009\u62E9\u51FB\u7403\u4F4D\u7F6E\u548C\u7403\u8DEF");
+      if (a === "fairAward") {
+        d.awardBases = +v.n;
+        d.result = "stop";
+        d.actions = runnerQueue(s).map((r) => ({ id: r.id, mode: "advance", advance: Math.min(+v.n, 4 - r.from) }));
+        d.phase = "review";
+      } else {
+        if (!d.result || !d.fielder) throw Error("\u8BF7\u9009\u62E9\u5904\u7406\u7ED3\u679C\u548C\u5904\u7406\u7403\u5458");
+        replay(g, true);
+        d.phase = "runners";
+        d.actions = [];
+      }
+    }
+    if (a === "fairRunnerClose") d.selectedRunner = null;
+    if (a === "fairRunner") d.selectedRunner = d.selectedRunner === v.id ? null : v.id;
+    if (a === "fairForm") d.runnerForm = { id: d.selectedRunner, mode: v.mode };
+    if (a === "fairFormCancel") {
+      d.runnerForm = null;
+      d.selectedRunner = null;
+    }
+    if (a === "fairReset") {
+      d.actions = [];
+      d.selectedRunner = null;
+      d.runnerForm = null;
+    }
+    if (a === "fairMove") {
+      const r = queue(s, d).find((r2) => r2.id === v.id), dest = +v.base, old = d.actions.find((a2) => a2.id === r.id);
+      if (dest < r.from) throw Error("\u4E0D\u80FD\u9000\u5230\u51FA\u53D1\u5792\u4E4B\u524D");
+      if (dest === r.from) d.actions = d.actions.filter((a2) => a2.id !== r.id);
+      else {
+        const total = dest - r.from, normal = d.result === "error" && !r.from ? 0 : (old == null ? void 0 : old.errorAdvance) ? Math.min(old.advance || 0, total) : total;
+        replace(d, { id: r.id, mode: "advance", advance: normal, errorAdvance: total - normal, errorFielder: total > normal ? (old == null ? void 0 : old.errorFielder) || d.fielder : void 0 });
+      }
+      validateOrder(s, d);
+      d.selectedRunner = null;
+    }
+    if (a === "fairFormSave") {
+      const f = d.runnerForm, r = queue(s, d).find((r2) => r2.id === f.id), old = d.actions.find((a2) => a2.id === r.id);
+      if (f.mode === "error") {
+        if (old == null ? void 0 : old.errorAdvance) throw Error("\u8BE5\u8DD1\u8005\u5DF2\u8BB0\u5F55\u5931\u8BEF\u8FDB\u5792\uFF0C\u8BF7\u91CD\u7F6E\u540E\u8C03\u6574");
+        const n = +$2("#fairErrorBases").value;
+        if (!n) throw Error("\u6CA1\u6709\u53EF\u8FDB\u5792\u7684\u7A7A\u95F4");
+        replace(d, { id: r.id, mode: "advance", advance: current(r, d) - r.from, errorAdvance: n, errorFielder: $2("#fairPlayer").value });
+        validateOrder(s, d);
+      } else {
+        if ($2("#fairTiming")) for (const a2 of d.actions) a2.beforeThird = $2("#fairTiming").value === "before";
+        replace(d, { ...old, id: r.id, mode: f.mode, base: f.mode === "force" ? +$2("#fairOutBase").value : null, putout: $2("#fairPlayer").value, safeBases: current(r, d) - r.from });
+      }
+      d.runnerForm = null;
+      d.selectedRunner = null;
+    }
+    if (a === "fairConfirm") {
+      validateOrder(s, d);
+      for (const r of queue(s, d)) if (!d.actions.some((a2) => a2.id === r.id) && r.from) d.actions.push({ id: r.id, mode: "advance", advance: 0 });
+      const shown = replay(g, true);
+      if (!shown.halfEnded && queue(s, d).some((r) => !d.actions.some((a2) => a2.id === r.id))) throw Error("\u8BF7\u62D6\u52A8\u6253\u8005\u5230\u8FBE\u5792\u5305\uFF0C\u6216\u8BB0\u5F55\u51FA\u5C40");
+      Object.assign(g, settleContact(g));
+      g.draft.phase = "review";
+      replay(g, true);
+    }
+    return true;
+  }
+  function installRunnerDrag(action2) {
+    let drag = null, suppress = false;
+    document.addEventListener("pointerdown", (e) => {
+      var _a;
+      const token = e.target.closest("[data-runner]");
+      if (!token) return;
+      drag = { id: token.dataset.runner, x: e.clientX, y: e.clientY, token, field: token.closest(".running-board").querySelector(".running-field"), score: token.closest(".running-board").querySelector("[data-score-box]"), moved: false };
+      (_a = token.setPointerCapture) == null ? void 0 : _a.call(token, e.pointerId);
+    });
+    document.addEventListener("pointermove", (e) => {
+      if (!drag) return;
+      if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 6) drag.moved = true;
+      if (drag.moved) {
+        e.preventDefault();
+        const base = drag.token.classList.contains("scored-token") ? "0px" : "-50%";
+        drag.token.style.transform = `translate(calc(${base} + ${e.clientX - drag.x}px),calc(${base} + ${e.clientY - drag.y}px))`;
+      }
+    });
+    document.addEventListener("pointerup", (e) => {
+      if (!drag) return;
+      const d = drag;
+      drag = null;
+      d.token.style.transform = "";
+      if (!d.moved) return;
+      suppress = true;
+      setTimeout(() => suppress = false, 350);
+      const score3 = d.score.getBoundingClientRect();
+      if (e.clientX >= score3.left && e.clientX <= score3.right && e.clientY >= score3.top && e.clientY <= score3.bottom) {
+        action2("fairMove", { id: d.id, base: 4 });
+        return;
+      }
+      const box = d.field.getBoundingClientRect(), x = (e.clientX - box.left) / box.width * 100, y = (e.clientY - box.top) / box.height * 100;
+      const candidates = points.map(([px, py], i) => ({ base: i, distance: Math.hypot(px - x, py - y) })).filter((p) => p.base > 0).sort((a, b) => a.distance - b.distance);
+      if (candidates[0].distance < 23) action2("fairMove", { id: d.id, base: candidates[0].base });
+    });
+    document.addEventListener("pointercancel", () => {
+      if (drag) drag.token.style.transform = "";
+      drag = null;
+    });
+    document.addEventListener("click", (e) => {
+      if (suppress && e.target.closest("[data-runner]")) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        suppress = false;
+      }
+    }, true);
+  }
+
   // app/src/main/assets/web/throwing-path.js
   var positions = ["\u81EA\u7531\u4EBA", "\u6295\u624B", "\u6355\u624B", "\u4E00\u5792\u624B", "\u4E8C\u5792\u624B", "\u4E09\u5792\u624B", "\u6E38\u51FB\u624B", "\u5DE6\u5916\u91CE", "\u4E2D\u5916\u91CE", "\u53F3\u5916\u91CE"];
   var throwingPathLabel = (value) => [...String(value || "")].map((d) => positions[d] || "\u65E0\u6548\u7F16\u53F7").join("\u27A1");
@@ -1188,8 +1375,12 @@
   function resultLines(l, person) {
     if (!l) return [];
     const p = l.play || {}, actions = p.actions || [], runs = p.runs || [], outs = p.outs || [], bases = l.afterBases || [];
-    const queue = [...(l.beforeBases || []).slice().sort((a, b) => b.from - a.from), { id: l.batter, from: 0 }], lines = [];
-    for (const r of queue) {
+    const queue2 = [...(l.beforeBases || []).slice().sort((a, b) => b.from - a.from), { id: l.batter, from: 0 }], lines = [];
+    if (l.kind === "contact") {
+      lines.push("\u51FB\u7403\u8BB0\u5F55\uFF1A" + contactText({ ...l, result: l.handlingResult }));
+      if (l.handlingFielder && !l.awardBases) lines.push("\u5904\u7406\u7403\u5458\uFF1A" + person(l.handlingFielder));
+    }
+    for (const r of queue2) {
       const a = actions.find((x) => x.id === r.id), o = outs.find((x) => x.id === r.id), dest = bases.findIndex((x) => (x == null ? void 0 : x.id) === r.id) + 1, scored = runs.some((x) => x.id === r.id);
       let text = "";
       if (o) text = o.mode === "force" ? ["", "\u4E00\u5792", "\u4E8C\u5792", "\u4E09\u5792", "\u672C\u5792"][o.base || (a == null ? void 0 : a.base) || 1] + "\u5904\u88AB\u5C01\u6740" : o.mode === "tag" ? "\u88AB\u89E6\u6740" : o.mode === "strike" ? "\u4E09\u632F\u51FA\u5C40" : "\u88AB\u63A5\u6740 / \u89C4\u5219\u51FA\u5C40";
@@ -1221,7 +1412,7 @@
   }
   function recordSheets(g, person) {
     const records = plateRecords(g);
-    return [{ name: "\u6BD4\u8D5B\u73AF\u5883", rows: [["\u6E29\u5EA6\uFF08\u2103\uFF09", g.temperature || ""], ["\u5929\u6C14", g.weather || ""], ["\u5730\u70B9", g.location || ""]] }, { name: "\u6362\u4EBA\u6362\u4F4D\u8BB0\u5F55", rows: [["\u65F6\u95F4", "\u5C40", "\u7403\u961F", "\u7C7B\u578B", "\u6253\u5E8F", "\u6362\u51FA / \u7403\u5458", "\u6362\u5165 / \u53E6\u4E00\u7403\u5458", "\u4F4D\u7F6E\u53D8\u5316", "\u7403\u6570 / \u5792\u4F4D"], ...substitutionRows(g, person)] }, { name: "\u6253\u51FB\u5E2D\u4F4D", rows: [["\u7403\u961F", "\u6253\u5E8F\u5E2D\u4F4D", "\u7403\u5458\u53CA\u80CC\u53F7", "\u5B88\u5907\u4F4D\u7F6E", "\u5165\u573A\u65B9\u5F0F"], ...lineupRows(g, person)] }, { name: "\u9010\u6253\u5E2D\u8BB0\u5F55", rows: [["\u6253\u5E2D", "\u7403\u961F", "\u5C40", "\u6253\u5E8F\u5E2D\u4F4D", "\u6253\u8005\uFF08\u4F9D\u6B21\uFF09", "\u72B6\u6001", "\u7ED3\u679C", "\u5F00\u59CB\u65F6\u95F4", "\u7ED3\u675F\u65F6\u95F4", "\u4F20\u7403\u8DEF\u5F84"], ...records.map((r, i) => [i + 1, g.teams[r.side].name, r.inning + (r.side ? "\u4E0B" : "\u4E0A"), r.slot, [...new Set(r.logs.map((l) => l.batter))].map(person).join(" \u2192 "), r.complete ? "\u5DF2\u5B8C\u6210" : "\u672A\u5B8C\u6210", r.logs.at(-1).summary, r.startedAt || "", r.endedAt || "", r.logs.filter((l) => l.throwingPath).map((l) => l.throwingPath + " \xB7 " + throwingPathLabel(l.throwingPath)).join("\uFF1B")])] }, { name: "\u6253\u5E2D\u5185\u6295\u7403\u4E0E\u8DD1\u5792", rows: [["\u6253\u5E2D", "\u7403\u5E8F/\u4E8B\u4EF6\u5E8F", "\u6295\u624B", "\u6253\u8005", "\u6295\u7403 / \u5224\u7F5A", "\u7ED3\u679C", "\u8DD1\u8005\u53CA\u7EDF\u8BA1", "\u65F6\u95F4"], ...records.flatMap((r, i) => r.logs.map((l, j) => [i + 1, j + 1, person(l.pitcher), person(l.batter), pitchLabel(l.kind), l.summary, resultLines(l, person).join("\uFF1B"), l.time || ""]))] }];
+    return [{ name: "\u6BD4\u8D5B\u73AF\u5883", rows: [["\u6E29\u5EA6\uFF08\u2103\uFF09", g.temperature || ""], ["\u5929\u6C14", g.weather || ""], ["\u5730\u70B9", g.location || ""]] }, { name: "\u6362\u4EBA\u6362\u4F4D\u8BB0\u5F55", rows: [["\u65F6\u95F4", "\u5C40", "\u7403\u961F", "\u7C7B\u578B", "\u6253\u5E8F", "\u6362\u51FA / \u7403\u5458", "\u6362\u5165 / \u53E6\u4E00\u7403\u5458", "\u4F4D\u7F6E\u53D8\u5316", "\u7403\u6570 / \u5792\u4F4D"], ...substitutionRows(g, person)] }, { name: "\u6253\u51FB\u5E2D\u4F4D", rows: [["\u7403\u961F", "\u6253\u5E8F\u5E2D\u4F4D", "\u7403\u5458\u53CA\u80CC\u53F7", "\u5B88\u5907\u4F4D\u7F6E", "\u5165\u573A\u65B9\u5F0F"], ...lineupRows(g, person)] }, { name: "\u9010\u6253\u5E2D\u8BB0\u5F55", rows: [["\u6253\u5E2D", "\u7403\u961F", "\u5C40", "\u6253\u5E8F\u5E2D\u4F4D", "\u6253\u8005\uFF08\u4F9D\u6B21\uFF09", "\u72B6\u6001", "\u7ED3\u679C", "\u5F00\u59CB\u65F6\u95F4", "\u7ED3\u675F\u65F6\u95F4", "\u4F20\u7403\u8DEF\u5F84", "\u51FB\u7403\u4F4D\u7F6E", "\u7403\u8DEF", "\u5904\u7406\u7ED3\u679C", "\u5904\u7406\u7403\u5458"], ...records.map((r, i) => [i + 1, g.teams[r.side].name, r.inning + (r.side ? "\u4E0B" : "\u4E0A"), r.slot, [...new Set(r.logs.map((l) => l.batter))].map(person).join(" \u2192 "), r.complete ? "\u5DF2\u5B8C\u6210" : "\u672A\u5B8C\u6210", r.logs.at(-1).summary, r.startedAt || "", r.endedAt || "", r.logs.filter((l) => l.throwingPath).map((l) => l.throwingPath + " \xB7 " + throwingPathLabel(l.throwingPath)).join("\uFF1B"), r.logs.filter((l) => l.kind === "contact").map((l) => l.location || "").join("\uFF1B"), r.logs.filter((l) => l.kind === "contact").map((l) => trajectories[l.trajectory] || "").join("\uFF1B"), r.logs.filter((l) => l.kind === "contact").map((l) => l.awardBases ? "\u573A\u5730\u89C4\u5219" + ["", "\u4E00\u5792\u5B89\u6253", "\u4E8C\u5792\u5B89\u6253", "\u4E09\u5792\u5B89\u6253", "\u672C\u5792\u6253"][l.awardBases] : outcomes[l.handlingResult] || "").join("\uFF1B"), r.logs.filter((l) => l.handlingFielder && !l.awardBases).map((l) => person(l.handlingFielder)).join("\uFF1B")])] }, { name: "\u6253\u5E2D\u5185\u6295\u7403\u4E0E\u8DD1\u5792", rows: [["\u6253\u5E2D", "\u7403\u5E8F/\u4E8B\u4EF6\u5E8F", "\u6295\u624B", "\u6253\u8005", "\u6295\u7403 / \u5224\u7F5A", "\u7ED3\u679C", "\u8DD1\u8005\u53CA\u7EDF\u8BA1", "\u65F6\u95F4"], ...records.flatMap((r, i) => r.logs.map((l, j) => [i + 1, j + 1, person(l.pitcher), person(l.batter), pitchLabel(l.kind), l.summary, resultLines(l, person).join("\uFF1B"), l.time || ""]))] }];
   }
   function lineupRows(g, person) {
     const teams = g.teams.map((t) => ({ ...t, lineup: t.lineup.map((p) => ({ ...p })) })), rows = [];
@@ -1297,30 +1488,14 @@
     };
     const batterCard = (id, label) => {
       var _a2;
-      return '<div class="score-person"><small>' + label + '</small><b title="' + esc2(name2(id)) + '">' + esc2(name2(id)) + "</b><span>\u5386\u53F2 AVG " + (((_a2 = career[id]) == null ? void 0 : _a2.AVG) || 0).toFixed(3) + '</span><span title="' + esc2(batting2(id)) + '">' + esc2(batting2(id)) + "</span></div>";
+      return '<div class="score-person"><small>' + label + '</small><b title="' + esc2(name2(id)) + '">' + esc2(name2(id)) + "</b><span>AVG " + (((_a2 = career[id]) == null ? void 0 : _a2.AVG) || 0).toFixed(3) + '</span><span title="' + esc2(batting2(id)) + '">' + esc2(batting2(id)) + "</span></div>";
     };
-    const ps = rates(s.stats[p], g.sport), cards = '<div class="score-players">' + batterCard(b, "\u5F53\u524D\u6253\u8005") + batterCard(next, "\u4E0B\u4E00\u4F4D\u6253\u8005") + '<div class="score-person"><small>\u6295\u624B</small><b title="' + esc2(name2(p)) + '">' + esc2(name2(p)) + "</b><span>P-S " + ps["P-S"] + "</span><span>\u5386\u53F2 ERA " + (((_a = career[p]) == null ? void 0 : _a.ERA) || 0).toFixed(2) + "</span></div></div>";
+    const ps = rates(s.stats[p], g.sport), cards = '<div class="score-players">' + batterCard(b, "\u5F53\u524D\u6253\u8005") + batterCard(next, "\u4E0B\u4E00\u4F4D\u6253\u8005") + '<div class="score-person"><small>\u6295\u624B</small><b title="' + esc2(name2(p)) + '">' + esc2(name2(p)) + "</b><span>P-S " + ps["P-S"] + "</span><span>ERA " + (((_a = career[p]) == null ? void 0 : _a.ERA) || 0).toFixed(2) + "</span></div></div>";
     return score(s, g.ended, esc2, cards) + '<div class="live-field"><div class="field-center">' + defenseField(s, ctx) + "</div></div>" + (s.halfEnded ? '<div class="half-actions"><span>\u4E09\u51FA\u5C40 \xB7 \u534A\u5C40\u7ED3\u675F</span><div class="row">' + btn2("\u5F00\u542F\u4E0B\u4E2A\u534A\u5C40", "half", "", "primary") + btn2("\u7ED3\u675F\u6BD4\u8D5B", "end", "", "danger") + "</div></div>" : '<div class="pitch-actions">' + btn2("B<small>\u574F\u7403</small>", "pitch", 'data-kind="ball"') + btn2("S<small>\u597D\u7403</small>", "pitch", 'data-kind="strike"') + btn2("Foul<small>\u754C\u5916</small>", "pitch", 'data-kind="foul"') + btn2("Fair<small>\u754C\u5185</small>", "contact", "", "primary") + '</div><div class="special-entry">' + btn2("\u88C1\u5224\u5224\u7F5A", "ruling") + btn2("\u7279\u6B8A\u60C5\u51B5", "specialMenu") + "</div>") + '<div class="record-tools">' + btn2("\u64A4\u9500\u8BB0\u5F55", "undo", canUndo(g) ? "" : "disabled", "ghost") + btn2("\u9010\u6253\u5E2D\u8BB0\u5F55", "showLog", "", "ghost") + '<div class="sub-tools">' + btn2("\u5B88\u5907\u6362\u4EBA", "sub", "", "ghost") + btn2("\u8FDB\u653B\u6362\u4EBA", "offenseSub", "", "ghost") + '</div></div><div class="last-play">' + esc2(((_b = s.log.at(-1)) == null ? void 0 : _b.summary) || "\u51C6\u5907\u5C31\u7EEA\uFF0C\u5F00\u59CB\u8BB0\u5F55\u5F53\u524D\u6253\u5E2D") + "</div>";
   }
   function playDialog(g, ctx) {
     var _a;
-    const { btn: btn2, esc: esc2, name: name2 } = ctx, s = replay(g), d = g.draft, fielders = s.teams[1 - s.side].lineup.filter(isDefender), fopts = (value) => fielders.map(
-      (p) => `<option value="${p.id}" ${p.id === value ? "selected" : ""}>${p.pos} \xB7 ${esc2(name2(p.id))}</option>`
-    ).join("");
-    if (!d.result)
-      return `<h2>\u91CE\u624B\u5904\u7406</h2><label>\u5904\u7406\u7403\u7684\u91CE\u624B</label><select id="fielder" data-contact-fielder>${fopts(d.fielder)}</select><div class="contact-options"><div class="contact-row catches">${btn2("\u9AD8\u98DE\u63A5\u6740", "result", 'data-value="catch" data-trajectory="fly"', "primary")}${btn2("\u5E73\u98DE\u63A5\u6740", "result", 'data-value="catch" data-trajectory="line"', "primary")}${btn2("\u5185\u91CE\u9AD8\u98DE", "result", 'data-value="catch" data-trajectory="popup"', "primary")}</div><div class="contact-row stops">${btn2("\u5730\u6EDA\u62E6\u622A", "result", 'data-value="stop" data-trajectory="ground"')}${btn2("\u5E73\u98DE\u62E6\u622A", "result", 'data-value="stop" data-trajectory="line"')}</div>${btn2("\u5904\u7406\u5931\u8BEF", "result", 'data-value="error"', "gold wide")}<div class="contact-row awards">${[1, 2, 3, 4].map((n) => btn2(n === 4 ? "<span>\u5168\u5792</span><span>\u6253</span>" : "<span>\u573A\u5730</span><span>" + ["", "\u4E00", "\u4E8C", "\u4E09"][n] + "\u5792</span>", "award", 'data-n="' + n + '"', "primary")).join("")}</div></div>`;
-    const q = runnerQueue(s).filter(
-      (r2) => r2.from || !["catch", "infieldFly"].includes(d.result)
-    ), r = q.find((r2) => !d.actions.some((a) => a.id === r2.id));
-    if (d.outForm) {
-      const f = d.outForm, shown = replay(g, true);
-      return `<h2>${f.mode === "force" ? "\u5C01\u6740" : "\u89E6\u6740"} \xB7 ${esc2(name2(f.id))}</h2>${f.mode === "force" ? `<label>\u51FA\u5C40\u5792\u5305</label><select id="outbase">${forceBases(s, f.id, d.result).map((n) => `<option value="${n}">${["", "\u4E00\u5792", "\u4E8C\u5792", "\u4E09\u5792", "\u672C\u5792"][n]}</option>`).join("")}</select>` : ""}<label>\u5B8C\u6210\u523A\u6740\u7684\u91CE\u624B</label><select id="putout">${fopts(d.fielder)}</select>${shown.o === 2 ? `<label>\u5DF2\u8BB0\u5F55\u7684\u5F97\u5206\u8DD1\u8005\u4E0E\u672C\u6B21\u51FA\u5C40\u7684\u5148\u540E</label><select id="outTiming"><option value="after">\u51FA\u5C40\u5728\u5148 / \u672A\u786E\u8BA4\u5F97\u5206\u5728\u5148</option><option value="before">\u8DD1\u8005\u5148\u56DE\u672C\u5792\uFF0C\u518D\u53D1\u751F\u51FA\u5C40</option></select>` : ""}${btn2("\u786E\u8BA4\u51FA\u5C40", "runnerOut", `data-id="${f.id}" data-mode="${f.mode}"`, "danger")}${btn2("\u8FD4\u56DE\u8DD1\u8005", "cancelOut")}`;
-    }
-    if (r) {
-      const limit = advanceLimit(s, d.actions, r.id), pending = d.pending || {}, isError = d.result === "error" && !r.from, normal = (_a = pending.advance) != null ? _a : isError ? 0 : r.from ? 0 : 1, showError = d.errorOpen || isError;
-      return `<h2>\u8DD1\u8005\u5904\u7406 \xB7 ${esc2(name2(r.id))}</h2><div class="runner-mini">${field(s)}</div><p class="muted">${r.from ? ["", "\u4E00\u5792", "\u4E8C\u5792", "\u4E09\u5792"][r.from] : "\u6253\u8005"} \xB7 ${q.findIndex((x) => x.id === r.id) + 1}/${q.length}\u3000\u6309\u524D\u4F4D\u81F3\u540E\u4F4D\u5904\u7406</p><label>\u6B63\u5E38\u51FB\u7403\u5230\u8FBE\u5792\u5305</label><select id="normalAdvance" data-normal-advance>${Array.from({ length: (isError ? 0 : Math.max(0, limit)) + 1 }, (_, n) => `<option value="${n}" ${n === normal ? "selected" : ""}>${n === 0 ? r.from ? `\u505C\u7559${["", "\u4E00\u5792", "\u4E8C\u5792", "\u4E09\u5792"][r.from]}` : "\u672A\u56E0\u51FB\u7403\u4E0A\u5792" : `\u5230\u8FBE${["", "\u4E00\u5792", "\u4E8C\u5792", "\u4E09\u5792", "\u672C\u5792"][r.from + n]}`}</option>`).join("")}</select>${btn2(showError ? "\u53D6\u6D88\u989D\u5916\u5931\u8BEF" : "\u56E0\u5931\u8BEF\u8FDB\u5792", "toggleError", "", "gold")}${showError ? `<div class="error-box"><label>\u5931\u8BEF\u91CE\u624B</label><select id="errorFielder" data-error-fielder>${fopts(pending.errorFielder || d.fielder)}</select><label>\u56E0\u5931\u8BEF\u6700\u7EC8\u5230\u8FBE\u5792\u5305</label><select id="errorAdvance" data-error-advance>${Array.from({ length: Math.max(0, limit - normal) }, (_, i) => `<option value="${i + 1}" ${pending.errorAdvance === i + 1 ? "selected" : ""}>\u5230\u8FBE${["", "\u4E00\u5792", "\u4E8C\u5792", "\u4E09\u5792", "\u672C\u5792"][r.from + normal + i + 1]}</option>`).join("")}</select></div>` : ""}<div class="actions">${btn2("\u786E\u8BA4\u8DD1\u8005", "saveRunner", `data-id="${r.id}"`, "primary wide")}${btn2("\u88AB\u5C01\u6740", "force", `data-id="${r.id}"`, "danger")}${btn2("\u88AB\u89E6\u6740", "tag", `data-id="${r.id}"`, "danger")}</div>`;
-    }
-    return resultPanel(g, ctx);
+    return (_a = fairDialog(g, ctx)) != null ? _a : resultPanel(g, ctx);
   }
   function resultPanel(g, ctx) {
     var _a, _b;
@@ -1380,7 +1555,7 @@
       else body += select(d.kind === "foulDrop" ? "\u6F0F\u63A5\u5931\u8BEF\u7403\u5458" : "\u5B8C\u6210\u63A5\u6740\u7684\u91CE\u624B", "specialFielder");
       return '<div class="dialog-body">' + body + '</div><div class="dialog-actions">' + btn2("\u4E0B\u4E00\u6B65", "specialChoose", "", "primary wide") + footer + "</div>";
     }
-    const queue = queueFor(s, d), r = queue.find((r2) => !d.actions.some((a) => a.id === r2.id));
+    const queue2 = queueFor(s, d), r = queue2.find((r2) => !d.actions.some((a) => a.id === r2.id));
     if (!r) return body + btn2("\u67E5\u770B\u7ED3\u679C", "specialReady", "", "primary wide") + footer;
     if (d.outId) {
       const currentOuts = s.o + d.actions.filter((a) => a.mode === "tag").length;
@@ -1390,7 +1565,7 @@
       return '<div class="dialog-body">' + body + '</div><div class="dialog-actions">' + btn2("\u786E\u8BA4\u8DD1\u8005\u51FA\u5C40", "specialOut", "", "danger wide") + btn2("\u8FD4\u56DE\u8DD1\u8005", "specialOutBack", "", "ghost") + btn2("\u53D6\u6D88\u672C\u6B21\u8BB0\u5F55", "specialCancel", "", "ghost") + "</div>";
     }
     const limit = Math.max(0, advanceLimit(s, d.actions, r.id)), walk = (d.kind === "wp" || d.kind === "pb" && d.pitchResult !== "strike") && s.b === 3, min = walk && Array.from({ length: r.from }, (_, i) => s.bases[i]).every(Boolean) ? 1 : 0;
-    body += "<h3>\u8DD1\u8005\u5904\u7406 \xB7 " + esc2(name2(r.id)) + '</h3><div class="runner-mini">' + field(s) + '</div><p class="muted">' + (r.from ? r.from + " \u5792\u8DD1\u8005" : "\u6253\u8005") + " \xB7 " + (d.actions.length + 1) + " / " + queue.length + '</p><label for="specialAdvance">\u6B63\u5E38\u8FDB\u5792\u6570\u91CF</label><select id="specialAdvance">' + Array.from({ length: Math.max(0, limit - min + 1) }, (_, i) => i + min).map((n) => '<option value="' + n + '" ' + (n === (r.from ? min : Math.min(1, limit)) ? "selected" : "") + ">" + n + " \u4E2A\u5792" + (n ? " \u2192 " + ["", "\u4E00\u5792", "\u4E8C\u5792", "\u4E09\u5792", "\u672C\u5792"][r.from + n] : "\uFF08\u505C\u7559\uFF09") + "</option>").join("") + '</select><label for="specialErrorAdvance">\u989D\u5916\u56E0\u5931\u8BEF\u8FDB\u5792\u6570\u91CF</label><select id="specialErrorAdvance">' + Array.from({ length: limit + 1 }, (_, n) => '<option value="' + n + '">' + n + " \u4E2A\u5792</option>").join("") + "</select>" + select("\u5931\u8BEF\u7403\u5458\uFF08\u56E0\u5931\u8BEF\u8FDB\u5792\u65F6\u5FC5\u9009\uFF09", "specialError", defense, d.errorFielder || "");
+    body += "<h3>\u8DD1\u8005\u5904\u7406 \xB7 " + esc2(name2(r.id)) + '</h3><div class="runner-mini">' + field(s) + '</div><p class="muted">' + (r.from ? r.from + " \u5792\u8DD1\u8005" : "\u6253\u8005") + " \xB7 " + (d.actions.length + 1) + " / " + queue2.length + '</p><label for="specialAdvance">\u6B63\u5E38\u8FDB\u5792\u6570\u91CF</label><select id="specialAdvance">' + Array.from({ length: Math.max(0, limit - min + 1) }, (_, i) => i + min).map((n) => '<option value="' + n + '" ' + (n === (r.from ? min : Math.min(1, limit)) ? "selected" : "") + ">" + n + " \u4E2A\u5792" + (n ? " \u2192 " + ["", "\u4E00\u5792", "\u4E8C\u5792", "\u4E09\u5792", "\u672C\u5792"][r.from + n] : "\uFF08\u505C\u7559\uFF09") + "</option>").join("") + '</select><label for="specialErrorAdvance">\u989D\u5916\u56E0\u5931\u8BEF\u8FDB\u5792\u6570\u91CF</label><select id="specialErrorAdvance">' + Array.from({ length: limit + 1 }, (_, n) => '<option value="' + n + '">' + n + " \u4E2A\u5792</option>").join("") + "</select>" + select("\u5931\u8BEF\u7403\u5458\uFF08\u56E0\u5931\u8BEF\u8FDB\u5792\u65F6\u5FC5\u9009\uFF09", "specialError", defense, d.errorFielder || "");
     if (!r.from) body += '<p class="special-note">\u4E0D\u6B7B\u4E09\u632F\u6253\u8005\u81F3\u5C11\u5230\u8FBE\u4E00\u5792\uFF1B\u53EF\u5C06\u8FDB\u5792\u8BB0\u4E3A\u6B63\u5E38\u8FDB\u5792\u6216\u5931\u8BEF\u8FDB\u5792\u3002</p>';
     return '<div class="dialog-body">' + body + '</div><div class="dialog-actions">' + btn2("\u786E\u8BA4\u8DD1\u8005", "specialRunner", "", "primary wide") + (r.from ? btn2("\u88AB\u89E6\u6740", "specialTag", "", "danger wide") : "") + footer + "</div>";
   }
@@ -1952,21 +2127,19 @@
         throw Error("\u4FDD\u5B58\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u5269\u4F59\u7A7A\u95F4");
     } else localStorage.setItem("diamond-v1", raw);
   }
+  var toastTimer;
   function toast(s) {
-    const openDialog = document.querySelector("dialog[open]");
-    if (openDialog) {
-      let notice = openDialog.querySelector(".dialog-feedback");
-      if (!notice) {
-        notice = document.createElement("p");
-        notice.className = "dialog-feedback";
-        notice.setAttribute("role", "alert");
-        openDialog.prepend(notice);
-      }
-      notice.textContent = s;
-    }
-    $("#toast").textContent = s;
-    $("#toast").style.display = "block";
-    setTimeout(() => $("#toast").style.display = "none", 3e3);
+    clearTimeout(toastTimer);
+    document.querySelectorAll(".notice-bubble").forEach((n) => n.remove());
+    const notice = document.createElement("div");
+    notice.className = "notice-bubble";
+    notice.setAttribute("role", "alert");
+    notice.textContent = s;
+    (document.querySelector("dialog[open]") || document.body).append(notice);
+    toastTimer = setTimeout(() => {
+      notice.classList.add("fading");
+      setTimeout(() => notice.remove(), 250);
+    }, 3e3);
   }
   function btn(label, action2, data = "", cls = "") {
     return `<button class="${cls}" data-action="${action2}" ${data}>${label}</button>`;
@@ -1997,8 +2170,8 @@
     return `${header("\u94BB\u77F3\u8BB0\u5206", btn("\u8F6F\u4EF6\u4F5C\u8005", "author", "", "ghost fit"))}<section class="hero"><div class="eyebrow">DIAMOND NOTEBOOK</div><h1>\u4E13\u6CE8\u6BD4\u8D5B\u3002<br>\u8BB0\u4E0B\u6BCF\u4E00\u4E2A\u77AC\u95F4\u3002</h1><p>\u4ECE\u7B2C\u4E00\u7403\u5230\u6700\u540E\u4E00\u4E2A\u51FA\u5C40\uFF0C<br>\u4F60\u7684\u7403\u573A\u8BB0\u5F55\u7C3F\u3002</p><div class="mark">\u25C7</div></section>${db.active ? `<div class="card row"><div><b>\u6709\u4E00\u573A\u6BD4\u8D5B\u6B63\u5728\u8FDB\u884C</b><p class="muted">\u6240\u6709\u6295\u7403\u4E0E\u672A\u5B8C\u6210\u6B65\u9AA4\u5DF2\u4FDD\u5B58</p></div>${btn("\u7EE7\u7EED\u8BB0\u5F55", "resume", "", "primary fit")}</div>` : ""}<div class="grid">${btn(homeArt("players") + "<b>\u7403\u5458</b><span>\u6CE8\u518C \xB7 \u7EDF\u8BA1 \xB7 \u5BFC\u51FA</span>", "players", "", "homebtn")}${btn(homeArt("baseball") + "<b>\u5F00\u59CB\u68D2\u7403\u6BD4\u8D5B</b><span>\u6807\u51C6\u9010\u7403\u8BB0\u5206</span>", "setup", 'data-sport="baseball"', "homebtn home-baseball")}${btn(homeArt("softball") + "<b>\u5F00\u59CB\u5792\u7403\u6BD4\u8D5B</b><span>\u6162\u6295 \xB7 1\u20131 \u8D77\u59CB\u7403\u6570</span>", "setup", 'data-sport="softball"', "homebtn home-softball")}${btn(homeArt("history") + "<b>\u8BB0\u5F55\u67E5\u770B</b><span>\u8D5B\u540E\u56DE\u987E \xB7 \u5168\u90E8\u6295\u7403</span>", "history", "", "homebtn")}</div>`;
   }
   function players() {
-    const matches = db.players.filter((p) => !p.deleted && normalizeName(p.name).includes(normalizeName(playerQuery))), pages = Math.max(1, Math.ceil(matches.length / 20)), current = playerPage = Math.min(pages, Math.max(1, playerPage)), people = matches.slice((current - 1) * 20, current * 20), st = totals(db.games.filter((g) => gameYear(g) === season), sport);
-    return `${header("\u7403\u5458")}<label>\u641C\u7D22\u7403\u5458\u59D3\u540D<input id="playerSearch" type="search" placeholder="\u8F93\u5165\u59D3\u540D\u641C\u7D22" value="${esc(playerQuery)}"></label>${yearSelect("season", season)}<div class="tabs">${btn("\u68D2\u7403", "sport", 'data-sport="baseball"', sport === "baseball" ? "primary" : "")}${btn("\u5792\u7403", "sport", 'data-sport="softball"', sport === "softball" ? "primary" : "")}</div><div class="row">${btn("\uFF0B \u6DFB\u52A0\u7403\u5458", "addPlayer", "", "primary")}${btn("\u5BFC\u51FA\u6240\u9009 Excel", "exportPlayers", "", "ghost")}</div><p class="muted">\u52FE\u9009\u7403\u5458\u5BFC\u51FA\uFF1B\u672A\u52FE\u9009\u65F6\u5BFC\u51FA\u5168\u90E8\u5728\u518C\u7403\u5458\u3002\u5F53\u524D\u5E74\u4EFD\u7684\u4E24\u79CD\u8FD0\u52A8\u72EC\u7ACB\u7D2F\u8BA1\u3002</p>${people.length ? people.map((p) => `<section class="card"><div class="row"><input class="check fit" type="checkbox" data-select="${p.id}" ${selected.has(p.id) ? "checked" : ""}><div><b>${esc(p.name)}</b><span class="muted">\u3000${esc(p.number || "\u2014")} \u53F7 \xB7 ${p.bats || "\u2014"}\u6253/${p.throws || "\u2014"}\u6295</span></div>${btn("\u7F16\u8F91", "editPlayer", `data-id="${p.id}"`, "small fit")}${btn("\u5220\u9664", "deletePlayer", `data-id="${p.id}"`, "small danger fit")}</div>${statsSections([p.id], st)}</section>`).join("") : '<div class="empty">\u6CA1\u6709\u5339\u914D\u7684\u7403\u5458</div>'}<div class="row pagination">${btn("\u4E0A\u4E00\u9875", "playerPage", 'data-page="' + (current - 1) + '" ' + (current === 1 ? "disabled" : ""))}<span>\u7B2C ${current} / ${pages} \u9875 \xB7 ${matches.length} \u4EBA</span>${btn("\u4E0B\u4E00\u9875", "playerPage", 'data-page="' + (current + 1) + '" ' + (current === pages ? "disabled" : ""))}</div>`;
+    const matches = db.players.filter((p) => !p.deleted && normalizeName(p.name).includes(normalizeName(playerQuery))), pages = Math.max(1, Math.ceil(matches.length / 20)), current2 = playerPage = Math.min(pages, Math.max(1, playerPage)), people = matches.slice((current2 - 1) * 20, current2 * 20), st = totals(db.games.filter((g) => gameYear(g) === season), sport);
+    return `${header("\u7403\u5458")}<label>\u641C\u7D22\u7403\u5458\u59D3\u540D<input id="playerSearch" type="search" placeholder="\u8F93\u5165\u59D3\u540D\u641C\u7D22" value="${esc(playerQuery)}"></label>${yearSelect("season", season)}<div class="tabs">${btn("\u68D2\u7403", "sport", 'data-sport="baseball"', sport === "baseball" ? "primary" : "")}${btn("\u5792\u7403", "sport", 'data-sport="softball"', sport === "softball" ? "primary" : "")}</div><div class="row">${btn("\uFF0B \u6DFB\u52A0\u7403\u5458", "addPlayer", "", "primary")}${btn("\u5BFC\u51FA\u6240\u9009 Excel", "exportPlayers", "", "ghost")}</div><p class="muted">\u52FE\u9009\u7403\u5458\u5BFC\u51FA\uFF1B\u672A\u52FE\u9009\u65F6\u5BFC\u51FA\u5168\u90E8\u5728\u518C\u7403\u5458\u3002\u5F53\u524D\u5E74\u4EFD\u7684\u4E24\u79CD\u8FD0\u52A8\u72EC\u7ACB\u7D2F\u8BA1\u3002</p>${people.length ? people.map((p) => `<section class="card"><div class="row"><input class="check fit" type="checkbox" data-select="${p.id}" ${selected.has(p.id) ? "checked" : ""}><div><b>${esc(p.name)}</b><span class="muted">\u3000${esc(p.number || "\u2014")} \u53F7 \xB7 ${p.bats || "\u2014"}\u6253/${p.throws || "\u2014"}\u6295</span></div>${btn("\u7F16\u8F91", "editPlayer", `data-id="${p.id}"`, "small fit")}${btn("\u5220\u9664", "deletePlayer", `data-id="${p.id}"`, "small danger fit")}</div>${statsSections([p.id], st)}</section>`).join("") : '<div class="empty">\u6CA1\u6709\u5339\u914D\u7684\u7403\u5458</div>'}<div class="row pagination">${btn("\u4E0A\u4E00\u9875", "playerPage", 'data-page="' + (current2 - 1) + '" ' + (current2 === 1 ? "disabled" : ""))}<span>\u7B2C ${current2} / ${pages} \u9875 \xB7 ${matches.length} \u4EBA</span>${btn("\u4E0B\u4E00\u9875", "playerPage", 'data-page="' + (current2 + 1) + '" ' + (current2 === pages ? "disabled" : ""))}</div>`;
   }
   function editPlayer(id) {
     const p = db.players.find((x) => x.id === id) || {};
@@ -2028,13 +2201,29 @@
     });
   }
   function dialog(html) {
-    var _a;
-    (_a = $("dialog")) == null ? void 0 : _a.remove();
+    var _a, _b, _c, _d;
+    const old = $("dialog"), view = ((_a = game()) == null ? void 0 : _a.draft) ? (game().draft.phase || "contact") + (game().draft.runnerForm ? "form" : "") : panel || "";
+    const keep = (old == null ? void 0 : old.dataset.view) === view, scroll = keep ? ((_b = old.querySelector(".dialog-body")) == null ? void 0 : _b.scrollTop) || 0 : 0;
+    const pageScroll = window.scrollY;
+    old == null ? void 0 : old.remove();
     const d = document.createElement("dialog");
     d.innerHTML = html;
+    d.dataset.view = view;
+    const overlay = d.querySelector(".fair-overlay");
+    if (overlay) {
+      d.append(overlay);
+      for (const child of d.children) if (child !== overlay) child.setAttribute("inert", "");
+      (_c = overlay.querySelector('[role="dialog"]')) == null ? void 0 : _c.setAttribute("aria-modal", "true");
+    }
     if (d.querySelector(".dialog-body")) d.classList.add("fixed-dialog");
     document.body.append(d);
     d.showModal();
+    if (overlay) (_d = overlay.querySelector("button")) == null ? void 0 : _d.focus({ preventScroll: true });
+    if (keep) {
+      const body = d.querySelector(".dialog-body");
+      if (body) body.scrollTop = scroll;
+      window.scrollTo(0, pageScroll);
+    }
   }
   function setup() {
     const d = db.setup;
@@ -2120,9 +2309,16 @@
     if (d) {
       const holder = document.createElement("div");
       holder.innerHTML = playDialog(g, context(g));
-      const confirm = holder.querySelector('[data-action="commitContact"]');
-      const confirmHtml = (confirm == null ? void 0 : confirm.outerHTML) || "";
+      const confirm = holder.querySelector('[data-action="commitContact"], [data-action="fairFormSave"], [data-action="fairStart"]');
+      let confirmHtml = (confirm == null ? void 0 : confirm.outerHTML) || "";
       confirm == null ? void 0 : confirm.remove();
+      const formBack = holder.querySelector('[data-action="fairFormCancel"]');
+      formBack == null ? void 0 : formBack.parentElement.remove();
+      const runActions = holder.querySelector(".fair-run-actions");
+      if (runActions) {
+        confirmHtml = runActions.outerHTML;
+        runActions.remove();
+      }
       dialog('<div class="dialog-body">' + holder.innerHTML + '</div><div class="dialog-actions">' + confirmHtml + '<div class="row">' + btn("\u4E0A\u4E00\u6B65", "draftBack", "", "ghost") + btn("\u53D6\u6D88\u672C\u7403", "cancelDraft", "", "ghost") + "</div></div>");
       $("dialog").addEventListener("cancel", (e) => e.preventDefault());
     }
@@ -2250,7 +2446,7 @@
     if (b) action(b.dataset.action, b.dataset);
   });
   async function action(a, v = {}) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r;
     const snapshot = clone(db);
     try {
       const g = game();
@@ -2265,6 +2461,11 @@
           render();
           return;
         }
+      }
+      if (handleFair(a, v, g, $)) {
+        save();
+        render();
+        return;
       }
       switch (a) {
         case "specialMenu":
@@ -2607,59 +2808,49 @@
         }
         case "draftBack": {
           const d = g.draft;
-          d.actions = d.actions.filter((a2) => !a2.automatic);
-          if (d.awardBases) {
-            delete d.awardBases;
-            d.actions = [];
-            delete d.result;
-            delete d.trajectory;
+          if (d.runnerForm) {
+            d.runnerForm = null;
+            d.selectedRunner = null;
             break;
           }
-          d.pending = null;
-          d.errorOpen = false;
-          d.outForm = null;
-          if (d.actions.length) {
-            d.actions.pop();
-            delete d.scoring;
-            delete d.rbi;
-          } else if (d.result) {
-            delete d.result;
-            delete d.trajectory;
-            delete d.zone;
-          } else {
-            g.draft = null;
-            (_j = $("dialog")) == null ? void 0 : _j.close();
+          if (d.phase === "review" && !d.awardBases) {
+            d.phase = "runners";
+            break;
           }
+          d.phase = "contact";
+          d.actions = [];
+          delete d.awardBases;
+          d.selectedRunner = null;
           break;
         }
         case "cancelDraft":
           if (!await ask("\u53D6\u6D88\u5F53\u524D\u5C1A\u672A\u786E\u8BA4\u7684\u6295\u7403\u5F55\u5165\uFF1F")) return;
           g.draft = null;
-          (_k = $("dialog")) == null ? void 0 : _k.close();
+          (_j = $("dialog")) == null ? void 0 : _j.close();
           break;
         case "commitContact":
           updateGame(commit(g, g.draft));
-          (_l = $("dialog")) == null ? void 0 : _l.close();
+          (_k = $("dialog")) == null ? void 0 : _k.close();
           stage = "pitch";
           break;
         case "confirmCount":
           updateGame(confirmCount(g));
-          (_m = $("dialog")) == null ? void 0 : _m.close();
+          (_l = $("dialog")) == null ? void 0 : _l.close();
           break;
         case "pendingBack": {
-          const ruling = ((_n = g.pendingPitch) == null ? void 0 : _n.type) === "ruling", special = ((_o = g.pendingPitch) == null ? void 0 : _o.type) === "special", draft = clone(g.specialDraft || null);
+          const ruling = ((_m = g.pendingPitch) == null ? void 0 : _m.type) === "ruling", special = ((_n = g.pendingPitch) == null ? void 0 : _n.type) === "special", draft = clone(g.specialDraft || null);
           updateGame(cancelCount(g));
           if (special && draft && !["balk", "interference"].includes(draft.kind)) {
             if (draft.actions.length) draft.actions.pop();
             game().specialDraft = draft;
           }
           panel = ruling ? "ruling" : special && !game().specialDraft ? "special" : null;
-          (_p = $("dialog")) == null ? void 0 : _p.close();
+          (_o = $("dialog")) == null ? void 0 : _o.close();
           break;
         }
         case "cancelCount":
           updateGame(cancelCount(g));
-          (_q = $("dialog")) == null ? void 0 : _q.close();
+          (_p = $("dialog")) == null ? void 0 : _p.close();
           break;
         case "undo":
           updateGame(undo(g).game);
@@ -2679,7 +2870,7 @@
           break;
         case "subBack":
           panel = null;
-          (_r = $("dialog")) == null ? void 0 : _r.close();
+          (_q = $("dialog")) == null ? void 0 : _q.close();
           sub = false;
           break;
         case "doSub":
@@ -2699,7 +2890,7 @@
           updateGame(n);
           sub = false;
           panel = null;
-          (_s = $("dialog")) == null ? void 0 : _s.close();
+          (_r = $("dialog")) == null ? void 0 : _r.close();
           toast("\u6362\u4EBA / \u6362\u4F4D\u5DF2\u8BB0\u5F55");
           break;
         }
@@ -2850,7 +3041,7 @@
         if (el.value === "") delete d.rbi;
         else d.rbi = Math.min(4, Math.max(0, Math.floor(+el.value)));
       }
-      if (d == null ? void 0 : d.result) replay(game(), true);
+      if ((d == null ? void 0 : d.result) && d.phase === "review") replay(game(), true);
       save();
       render();
     } catch (err) {
@@ -2934,4 +3125,5 @@
     const index = t.index + (dx < 0 ? 1 : -1);
     if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) && g && index >= 0 && index < plateRecords(g).length) action("logMove", { index });
   });
+  installRunnerDrag(action);
 })();
