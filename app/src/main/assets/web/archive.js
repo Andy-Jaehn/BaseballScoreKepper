@@ -9,8 +9,8 @@ export function archiveId(g){
 }
 function refs(g){
   const set=new Set();const add=id=>{if(id)set.add(id);};
-  g.teams.forEach(t=>t.lineup.forEach(p=>add(p.id)));add(g.scorerId);add(g.umpireId);
-  for(const e of g.events){if(e.type==='sub'&&e.swap===undefined)add(e.id);for(const k of ['pitcher','fielder','putout','errorFielder','thirdOutId','runnerId','personId','replacementId','foulErrorFielder'])add(e[k]);for(const a of e.actions||[]){add(a.id);add(a.putout);add(a.errorFielder);add(a.assist);}}
+  g.teams.forEach(t=>{t.lineup.forEach(p=>add(p.id));add(t.pitcherId);});add(g.scorerId);add(g.umpireId);
+  for(const e of g.events){if((e.type==='sub'&&e.swap===undefined)||e.type==='pitchingSub')add(e.id);for(const k of ['pitcher','fielder','putout','errorFielder','thirdOutId','runnerId','personId','replacementId','foulErrorFielder'])add(e[k]);for(const a of e.actions||[]){add(a.id);add(a.putout);add(a.errorFielder);add(a.assist);}for(const credit of e.fieldingCredits||[])add(credit.id);}
   return set;
 }
 export function exportArchive(db,selectedYears,byGame=false){
@@ -34,7 +34,7 @@ export function importArchive(db,text){
     if(existing.has(key)){skipped++;gameDetails.push({...gameDetail,status:'skipped'});continue;}
     if(!['baseball','softball'].includes(g.sport)||!Array.isArray(g.teams)||g.teams.length!==2||!Array.isArray(g.events)||g.events.length>100000)throw Error('比赛结构无效');
     for(const t of g.teams)if(typeof t.name!=='string'||!Array.isArray(t.lineup)||t.lineup.length<2||t.lineup.some(p=>!POSITIONS.includes(p.pos)))throw Error('球队阵容无效');
-    for(const e of g.events)if(!['pitch','sub','half','ruling','special'].includes(e.type))throw Error('未知比赛事件');
+    for(const e of g.events)if(!['pitch','sub','pitchingSub','half','ruling','special'].includes(e.type))throw Error('未知比赛事件');
     for(const id of refs(g)){
       if(map.has(id))continue;
       const p=incoming.get(id);if(!p)throw Error('文件缺少比赛所需的球员信息');
@@ -48,10 +48,10 @@ export function importArchive(db,text){
       map.set(id,local.id);
     }
     const remap=(o,k)=>{if(o[k])o[k]=map.get(o[k]);};
-    for(const t of g.teams)for(const p of t.lineup)remap(p,'id');
+    for(const t of g.teams){for(const p of t.lineup)remap(p,'id');remap(t,'pitcherId');}
     remap(g,'scorerId');remap(g,'umpireId');
-    for(const e of g.events){if(e.type==='sub'&&e.swap===undefined)remap(e,'id');for(const k of ['pitcher','fielder','putout','errorFielder','thirdOutId','runnerId','personId','replacementId','foulErrorFielder'])remap(e,k);for(const a of e.actions||[]){remap(a,'id');remap(a,'putout');remap(a,'errorFielder');remap(a,'assist');}}
-    const lineup=g.teams.flatMap(t=>t.lineup.map(p=>p.id));if(new Set(lineup).size!==lineup.length)throw Error('同名映射导致阵容重复，请核对球员姓名');
+    for(const e of g.events){if((e.type==='sub'&&e.swap===undefined)||e.type==='pitchingSub')remap(e,'id');for(const k of ['pitcher','fielder','putout','errorFielder','thirdOutId','runnerId','personId','replacementId','foulErrorFielder'])remap(e,k);for(const a of e.actions||[]){remap(a,'id');remap(a,'putout');remap(a,'errorFielder');remap(a,'assist');}for(const credit of e.fieldingCredits||[])remap(credit,'id');}
+    const lineup=g.teams.flatMap(t=>[...t.lineup.map(p=>p.id),t.pitcherId].filter(Boolean));if(new Set(lineup).size!==lineup.length)throw Error('同名映射导致阵容重复，请核对球员姓名');
     g.id=uid();g.draft=null;g.pendingPitch=null;g.specialDraft=null;g.rulesVersion=2;
     const state=replay(g);g.substitutions=clone(state.substitutions);for(const st of Object.values(state.stats))for(const v of Object.values(st))if(!Number.isFinite(v)||v<0)throw Error('比赛统计无效');
     next.games.push(g);existing.add(key);count++;gameDetails.push({...gameDetail,status:'added'});

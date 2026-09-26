@@ -98,5 +98,5 @@ export function statSheets(groups, players, meta = {}) {
   return sheets;
 }
 export function teamIds(g,team){
-  return [...new Set([...g.teams[team].lineup.map(p=>p.id),...g.events.filter(e=>e.type==='sub'&&e.team===team&&e.swap===undefined).map(e=>e.id),...g.events.filter(e=>e.type==='ruling'&&e.kind==='eject'&&e.team===team&&e.replacementId).map(e=>e.replacementId)])];
+  return [...new Set([...g.teams[team].lineup.map(p=>p.id),g.teams[team].pitcherId,...g.events.filter(e=>e.type==='sub'&&e.team===team&&e.swap===undefined).map(e=>e.id),...g.events.filter(e=>e.type==='pitchingSub'&&e.team===team).map(e=>e.id),...g.events.filter(e=>e.type==='ruling'&&e.kind==='eject'&&e.team===team&&e.replacementId).map(e=>e.replacementId),...g.events.filter(e=>e.pitchingTeam===team&&e.pitcher).map(e=>e.pitcher)].filter(Boolean))];
 }

@@ -126,7 +126,7 @@ export function initial(g) {
 export const batter = (s) =>
   s.teams[s.side].lineup[s.order[s.side] % s.teams[s.side].lineup.length].id;
 export const pitcher = (s) =>
-  s.teams[1 - s.side].lineup.find((p) => p.pos === "投手")?.id;
+  s.teams[1 - s.side].pitcherId || s.teams[1 - s.side].lineup.find((p) => p.pos === "投手")?.id;
 function add(s, id, k, n = 1) {
   if (id) {
     s.stats[id] ??= emptyStats();
@@ -204,9 +204,23 @@ function plate(s, id, p, r) {
     add(s, p, "K");
   }
 }
-export function apply(s, g, e, provisional = false) {
-  if(e.type==='special')return applySpecial(s,g,e,{batter,pitcher,runnerQueue,clone,add,out,run,plate,finish,reset,apply,isDefender});
+function applyCore(s, g, e, provisional = false) {
+  if(e.type==='special')return applySpecial(s,g,e,{batter,pitcher,runnerQueue,clone,add,out,run,plate,finish,reset,apply:applyCore,isDefender});
   if(e.type === "ruling" && e.kind !== "awardWalk") return applyRuling(s,g,e);
+  if (e.type === 'pitchingSub') {
+    if (![0, 1].includes(e.team) || !e.id) throw Error('无效换投');
+    const team=s.teams[e.team];
+    if (team.lineup.some(p=>p.pos==='投手')) throw Error('投手占打序时，请使用守备换人');
+    const old=team.pitcherId;
+    if (!old || old===e.id || s.ejected.includes(e.id) ||
+        s.teams.some(t=>t.lineup.some(p=>p.id===e.id) || t.pitcherId===e.id))
+      throw Error('请选择未上场的替补投手');
+    team.pitcherId=e.id;
+    s.substitutions.push({eventId:e.eventId,time:e.time,inning:s.inning,side:s.side,
+      team:e.team,slot:null,outId:old,inId:e.id,position:'投手',kind:'换投',
+      balls:s.b,strikes:s.s});
+    return;
+  }
   if (e.type === "sub") {
     if (e.team !== 0 && e.team !== 1) throw Error("无效球队");
     const l=s.teams[e.team].lineup,old=l[e.index];
@@ -218,7 +232,7 @@ export function apply(s, g, e, provisional = false) {
       record.otherId=l[e.swap].id;record.otherSlot=e.swap+1;record.otherPosition=l[e.swap].pos;
       [old.pos,l[e.swap].pos]=[l[e.swap].pos,old.pos];
     }else{
-      if(!e.id||s.ejected.includes(e.id)||s.teams.some(t=>t.lineup.some(p=>p.id===e.id)))throw Error('请选择未在场且未被驱逐的替补');
+      if(!e.id||s.ejected.includes(e.id)||s.teams.some(t=>t.lineup.some(p=>p.id===e.id)||t.pitcherId===e.id))throw Error('请选择未在场且未被驱逐的替补');
       if(offense&&old.id!==batter(s)&&!runner)throw Error('进攻换人只能替换当前打者或垒上跑者');
       if(offense&&old.id===batter(s)&&s.s===2&&g.sport==='baseball')s.strikeoutBatter ||= old.id;
       l[e.index]={id:e.id,pos:old.pos};
@@ -468,6 +482,8 @@ export function apply(s, g, e, provisional = false) {
       if (!complete) throw Error("请完成所有跑者的记录");
       if (result === "H" && (!hitBases || hitBases > 4))
         throw Error("安打垒数无效");
+      if (e.homeRunType && (hitBases !== 4 || e.homeRunType !== 'overFence'))
+        throw Error('本垒打类型无效');
       const ballType = {fly:'FB',line:'LD',popup:'IFF',ground:'GB',bunt:'GB'}[e.trajectory];
       if (ballType) {
         add(s, id, ballType);
@@ -519,7 +535,7 @@ export function apply(s, g, e, provisional = false) {
                 : "击球出局";
       summary = {
         OUT: outLabel,
-        H: ["", "一垒安打", "二垒安打", "三垒安打", "全垒打"][hitBases],
+        H: hitBases===4?(e.homeRunType==='overFence'?'本垒打':'场内本垒打'):["", "一垒安打", "二垒安打", "三垒安打"][hitBases],
         E: "失误上垒",
         FC: "野手选择上垒",
         SF: "牺牲飞球",
@@ -538,6 +554,7 @@ export function apply(s, g, e, provisional = false) {
         reachedError: !forceEndsHalf && !batterOut && (error || result === "E"),
         forceEndsHalf,
         hitBases,
+        homeRunType: hitBases===4?(e.homeRunType==='overFence'?'overFence':'insidePark'):null,
         runs: valid,
         outs,
         actions: effectiveActions.map((a) => ({
@@ -585,10 +602,29 @@ export function apply(s, g, e, provisional = false) {
     handlingResult: e.result,
     handlingFielder: e.fielder,
     awardBases: e.awardBases,
+    homeRunType: play?.homeRunType || null,
     zone: e.zone,
     trajectory: e.trajectory,
     throwingPath: e.throwingPath || "",
   });
+}
+export function apply(s, g, e, provisional = false) {
+  if (!Array.isArray(e.fieldingCredits)) return applyCore(s, g, e, provisional);
+  for (const credit of e.fieldingCredits) {
+    if (typeof credit.id !== 'string' || !credit.id ||
+        ['PO', 'A', 'E'].some(k => !Number.isInteger(credit[k] || 0) || (credit[k] || 0) < 0))
+      throw Error('守备记功无效');
+  }
+  const before = Object.fromEntries(Object.entries(s.stats).map(([id, st]) =>
+    [id, {PO:st.PO, A:st.A, E:st.E}]));
+  applyCore(s, g, e, provisional);
+  // Imported play-by-play can name every putout, assist and error, including
+  // multiple assists on one out. Preserve the scoring result and replace only
+  // the inferred individual fielding credits for this event.
+  for (const [id, st] of Object.entries(s.stats))
+    for (const k of ['PO', 'A', 'E']) st[k] = before[id]?.[k] || 0;
+  for (const credit of e.fieldingCredits)
+    for (const k of ['PO', 'A', 'E']) if (credit[k]) add(s, credit.id, k, credit[k]);
 }
 export function replay(g, includeDraft = false) {
   const s = initial(g);

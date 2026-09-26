@@ -5,7 +5,8 @@ const zones=[['左外','中左外','中外','中右外','右外'],['三垒边线
 const defaults=['左外野','左外野','中外野','右外野','右外野','三垒手','游击手','二垒手','二垒手','一垒手','投手'];
 const colors=['#176ab4','#b4510d','#8b43b1','#167b57'];
 const points=[[50,84],[84,50],[50,16],[16,50],[50,84]];
-export const contactText=d=>(d.location?d.location+(['左外','中外','右外'].includes(d.location)?'野':'')+'方向':'')+(trajectories[d.trajectory]||'')+(d.awardBases?'场地规则'+['','一垒安打','二垒安打','三垒安打','本垒打'][d.awardBases]:outcomes[d.result]||'');
+const hitNames=['','一垒安打','二垒安打','三垒安打','本垒打'];
+export const contactText=d=>(d.location?d.location+(['左外','中外','右外'].includes(d.location)?'野':'')+'方向':'')+(trajectories[d.trajectory]||'')+(d.awardBases?'场地规则'+hitNames[d.awardBases]:d.scoringResult==='H'&&d.hitBases?(d.hitBases===4?(d.homeRunType==='overFence'?'本垒打':'场内本垒打'):hitNames[d.hitBases]):outcomes[d.result]||'');
 const queue=(s,d)=>runnerQueue(s).filter(r=>r.from||!['catch','infieldFly'].includes(d.result));
 const current=(r,d)=>{const a=d.actions.find(a=>a.id===r.id);return r.from+(a?.advance||0)+(a?.errorAdvance||0);};
 function validateOrder(s,d){
@@ -15,8 +16,10 @@ function validateOrder(s,d){
 function replace(d,a){d.actions=d.actions.filter(x=>x.id!==a.id);d.actions.push(a);}
 export function fairDialog(g,ctx){
  const {btn,esc,name}=ctx,d=g.draft,s=replay(g),q=queue(s,d);
- const opts=value=>s.teams[1-s.side].lineup.filter(isDefender).map(p=>`<option value="${esc(p.id)}" ${p.id===value?'selected':''}>${p.pos} · ${esc(name(p.id))}</option>`).join('');
- if(!d.phase||d.phase==='contact')return `<section class="fair-input"><h2>Fair · 界内球</h2><label>击球位置</label>${zones.map(row=>`<div class="fair-row" style="--count:${row.length}">${row.map(z=>btn(z,'fairZone',`data-value="${z}" aria-pressed="${d.location===z}"`,d.location===z?'selected':'')).join('')}</div>`).join('')}<hr><label>球路</label><div class="fair-row" style="--count:4">${Object.entries(trajectories).map(([k,v])=>btn(v.replace('球',''),'fairTrajectory',`data-value="${k}" aria-pressed="${d.trajectory===k}"`,d.trajectory===k?'selected':'')).join('')}</div><hr><label>处理结果</label><div class="fair-row" style="--count:4">${Object.entries(outcomes).map(([k,v])=>btn(v,'fairResult',`data-value="${k}" aria-pressed="${d.result===k}"`,d.result===k?'selected':'')).join('')}${btn('场地规则','fairAwardMenu','aria-expanded="'+!!d.awardOpen+'"',d.awardOpen?'selected':'')}</div>${d.awardOpen?`<div class="fair-overlay"><div class="fair-bubble" role="dialog" aria-label="场地规则"><h3>场地规则</h3><div class="fair-awards">${[1,2,3,4].map(n=>btn('场地规则'+['','一垒安打','二垒安打','三垒安打','本垒打'][n],'fairAward',`data-n="${n}"`)).join('')}</div>${btn('返回','fairAwardMenu','','ghost wide')}</div></div>`:''}<label>处理球员（按位置预选，可更改）</label><select data-contact-fielder>${opts(d.fielder)}</select><p class="fair-preview" aria-live="polite">${esc(contactText(d)||'选择位置、球路和处理结果')}${d.result==='error'?' · '+esc(name(d.fielder))+' 记 E':''}</p>${btn('确认本球','fairStart','','primary wide')}</section>`;
+ const defense=s.teams[1-s.side],defenders=defense.lineup.filter(isDefender);
+ if(defense.pitcherId&&!defenders.some(p=>p.pos==='投手'))defenders.unshift({id:defense.pitcherId,pos:'投手'});
+ const opts=value=>defenders.map(p=>`<option value="${esc(p.id)}" ${p.id===value?'selected':''}>${p.pos} · ${esc(name(p.id))}</option>`).join('');
+ if(!d.phase||d.phase==='contact')return `<section class="fair-input"><h2>Fair · 界内球</h2><label>击球位置</label>${zones.map(row=>`<div class="fair-row" style="--count:${row.length}">${row.map(z=>btn(z,'fairZone',`data-value="${z}" aria-pressed="${d.location===z}"`,d.location===z?'selected':'')).join('')}</div>`).join('')}<hr><label>球路</label><div class="fair-row" style="--count:4">${Object.entries(trajectories).map(([k,v])=>btn(v.replace('球',''),'fairTrajectory',`data-value="${k}" aria-pressed="${d.trajectory===k}"`,d.trajectory===k?'selected':'')).join('')}</div><hr><label>处理结果</label><div class="fair-row" style="--count:4">${Object.entries(outcomes).map(([k,v])=>btn(v,'fairResult',`data-value="${k}" aria-pressed="${d.result===k}"`,d.result===k?'selected':'')).join('')}${btn('场地规则','fairAwardMenu','aria-expanded="'+!!d.awardOpen+'"',d.awardOpen?'selected':'')}</div>${d.awardOpen?`<div class="fair-overlay"><div class="fair-bubble" role="dialog" aria-label="场地规则"><h3>场地规则</h3><div class="fair-awards">${btn('场地规则一垒安打','fairAward','data-n="1"')}${btn('场地规则二垒安打','fairAward','data-n="2"')}${btn('场地规则三垒安打','fairAward','data-n="3"')}${btn('本垒打','fairHomeRun')}</div>${btn('返回','fairAwardMenu','','ghost wide')}</div></div>`:''}<label>处理球员（按位置预选，可更改）</label><select data-contact-fielder>${opts(d.fielder)}</select><p class="fair-preview" aria-live="polite">${esc(contactText(d)||'选择位置、球路和处理结果')}${d.result==='error'?' · '+esc(name(d.fielder))+' 记 E':''}</p>${btn('确认本球','fairStart','','primary wide')}</section>`;
  if(d.phase==='review')return null;
  if(d.runnerForm){const f=d.runnerForm,r=q.find(r=>r.id===f.id),at=current(r,d),limit=advanceLimit(s,d.actions,r.id)-(at-r.from);
  return `<h2>${esc(name(f.id))} · ${f.mode==='error'?'失误进垒':f.mode==='force'?'封杀':'触杀'}</h2>${f.mode==='error'?`<p>从${['打击区','一垒','二垒','三垒','本垒'][at]}继续进垒</p><label>失误进垒数量</label><select id="fairErrorBases">${Array.from({length:Math.max(0,limit)},(_,i)=>`<option value="${i+1}">${i+1} 个垒</option>`).join('')}</select>`:f.mode==='force'?`<label>封杀垒包</label><select id="fairOutBase">${forceBases(s,f.id,d.result).map(n=>`<option value="${n}">${['','一垒','二垒','三垒','本垒'][n]}</option>`).join('')}</select>`:''}<label>${f.mode==='error'?'失误球员':'完成刺杀的球员'}</label><select id="fairPlayer">${opts(d.fielder)}</select>${f.mode!=='error'&&s.o+(d.result==='catch'?1:0)+d.actions.filter(a=>['force','tag'].includes(a.mode)).length>=2?'<label>得分与第三出局的先后</label><select id="fairTiming"><option value="after">出局在先 / 未确认得分在先</option><option value="before">跑者先回本垒</option></select>':''}<div class="row">${btn('返回','fairFormCancel')}${btn('确认','fairFormSave',f.mode==='error'&&limit<=0?'disabled':'','primary')}</div>`;
@@ -34,13 +37,14 @@ function runningScene(s,d,{btn,esc,name}){
 export function handleFair(a,v,g,$){
  if(!a.startsWith('fair'))return false;
  const d=g.draft,s=replay(g);
- if(a==='fairZone'){d.location=v.value;d.zone=zones[0].includes(v.value)?'外野':'内野';d.fielder=s.teams[1-s.side].lineup.find(p=>p.pos===defaults[zones.flat().indexOf(v.value)])?.id;}
+ if(a==='fairZone'){d.location=v.value;d.zone=zones[0].includes(v.value)?'外野':'内野';const defense=s.teams[1-s.side],pos=defaults[zones.flat().indexOf(v.value)];d.fielder=defense.lineup.find(p=>p.pos===pos)?.id||(pos==='投手'?defense.pitcherId:undefined);}
  if(a==='fairTrajectory')d.trajectory=v.value;
  if(a==='fairResult'){d.result=v.value;d.awardOpen=false;}
  if(a==='fairAwardMenu')d.awardOpen=!d.awardOpen;
- if(a==='fairStart'||a==='fairAward'){
+ if(a==='fairStart'||a==='fairAward'||a==='fairHomeRun'){
   if(!d.location||!d.trajectory)throw Error('请先选择击球位置和球路');
   if(a==='fairAward'){d.awardBases=+v.n;d.result='stop';d.actions=runnerQueue(s).map(r=>({id:r.id,mode:'advance',advance:Math.min(+v.n,4-r.from)}));d.phase='review';}
+  else if(a==='fairHomeRun'){d.homeRunType='overFence';d.result='stop';d.actions=runnerQueue(s).map(r=>({id:r.id,mode:'advance',advance:4-r.from}));d.phase='review';}
   else {if(!d.result||!d.fielder)throw Error('请选择处理结果和处理球员');replay(g,true);d.phase='runners';d.actions=[];}
  }
  if(a==='fairRunnerClose')d.selectedRunner=null;

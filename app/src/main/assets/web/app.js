@@ -188,11 +188,16 @@ function dialog(html) {
   if(keep){const body=d.querySelector('.dialog-body');if(body)body.scrollTop=scroll;window.scrollTo(0,pageScroll);}
 }
 
+function setupPitcherPicker(d,t,team){
+  if(d.sport!=='baseball'||!t.lineup.some(p=>p.pos==='指定打击 DH'))return '';
+  const occupied=new Set(d.teams.flatMap(x=>x.lineup.map(p=>p.id)).concat(d.teams.map(x=>x.pitcherId).filter(Boolean)));
+  return `<label>未列入打序的投手<select data-pitcher-team="${team}"><option value="">选择投手</option>${db.players.filter(p=>!p.deleted&&(!occupied.has(p.id)||p.id===t.pitcherId)).map(p=>`<option value="${esc(p.id)}" ${p.id===t.pitcherId?'selected':''}>${esc(p.name)} #${esc(p.number||'—')}</option>`).join('')}</select></label>`;
+}
 function setup() {
   const d = db.setup;
   if(!d){page=db.active?'game':'home';return db.active?record():home();}
   return (
-    header("组队 · " + sportName(d.sport)) + (d.sport === "softball" ? '<p class="muted">增额球员：加入球员后选择增额球员，参与打序、不占守备位置。守备满员后新增球员自动设为增额球员。</p>' : "") +
+    header("组队 · " + sportName(d.sport)) + (d.sport === "softball" ? '<p class="muted">增额球员 EP：参与打序、不占守备位置，可加入多位；守备满员后新增球员自动设为 EP。</p>' : '<p class="muted">指定打击 DH 参与打序、不守备。使用 DH 时，请另选一位不占打序的投手。</p>') +
     officialFields(d,db.players,esc) +
     '<section class="card"><h3>比赛环境（可选）</h3>'+[['temperature','温度（℃）'],['weather','天气'],['location','地点']].map(([key,label])=>'<label>'+label+'<input data-environment="'+key+'" maxlength="100" value="'+esc(d[key]||'')+'" placeholder="可不填写"></label>').join('')+'</section>'+
     '<p class="muted">按住 ≡ 拖动打序 · L 左打 / R 右打 / S 左右开弓</p>' +
@@ -205,7 +210,7 @@ function setup() {
                 `<div class="lineup" data-team="${i}" data-index="${j}"><div class="handle" data-drag="${i}:${j}" aria-label="拖动打序">≡</div><div class="clip"><b>${j + 1}. ${esc(name(p.id))}</b> <span class="hand">${db.players.find((x) => x.id === p.id)?.bats || "—"}</span></div><select aria-label="${esc(name(p.id))}守备位置" data-position="${i}:${j}">${lineupPositions(d.sport)
                   .map(
                     (pos) =>
-                      `<option ${p.pos === pos ? "selected" : ""}>${pos}</option>`,
+                      `<option value="${esc(pos)}" ${p.pos === pos ? "selected" : ""}>${pos==='增额球员'?'增额球员 EP':pos}</option>`,
                   )
                   .join(
                     "",
@@ -213,7 +218,7 @@ function setup() {
             )
             .join(
               "",
-            )}</div>${btn("＋ 搜索并加入球员", "pickPlayer", `data-team="${i}"`, "ghost wide")}</section>`,
+            )}</div>${setupPitcherPicker(d,t,i)}${btn("＋ 搜索并加入球员", "pickPlayer", `data-team="${i}"`, "ghost wide")}</section>`,
       )
       .join("") +
     '<div class="row">' +
@@ -270,6 +275,10 @@ function matchModal() {
     dialog(subPanel(replay(g)));
     return;
   }
+  if(panel==='pitcher'){
+    dialog(pitcherPanel(replay(g)));
+    return;
+  }
   if (g.pendingPitch) {
     dialog(resultPanel(g, context(g)));
     $("dialog").addEventListener("cancel", (e) => e.preventDefault());
@@ -300,7 +309,7 @@ function pickPlayer(team,role=null) {
         .filter(
           (p) =>
             !p.deleted &&
-            (role || !db.setup.teams.some((t) => t.lineup.some((x) => x.id === p.id))) &&
+            (role || !db.setup.teams.some((t) => t.pitcherId===p.id||t.lineup.some((x) => x.id === p.id))) &&
             p.name
               .toLocaleLowerCase()
               .includes(input.value.trim().toLocaleLowerCase()),
@@ -323,7 +332,12 @@ function pickPlayer(team,role=null) {
 function subPanel(s) {
  const offense=subMode==='offense',team=offense?s.side:1-s.side,lineup=s.teams[team].lineup;
  const slots=lineup.map((p,i)=>({...p,index:i})).filter(p=>!offense||p.id===batter(s)||s.bases.some(r=>r?.id===p.id));
- return '<div class="dialog-body"><h2>'+(offense?'进攻换人':'守备换人 / 换位')+'</h2><p>'+esc(s.teams[team].name)+'</p><p class="muted">'+(offense?'代打继承球数；代跑继承垒位，后续得分记给代跑。替补继承原打序和守备位置。':'替补继承原打序；此前数据保留在原球员名下。')+'</p><label>替换场上球员</label><select id="subout">'+slots.map(p=>'<option value="'+p.index+'">'+(offense?(p.id===batter(s)?'当前打者':'垒上跑者')+' · ':'')+'第 '+(p.index+1)+' 棒 · '+esc(name(p.id))+'</option>').join('')+'</select><label>换入注册球员</label><select id="subin"><option value="">选择替补…</option>'+db.players.filter(p=>!p.deleted&&!s.ejected.includes(p.id)&&!s.teams.some(t=>t.lineup.some(x=>x.id===p.id))).map(p=>'<option value="'+p.id+'">'+esc(p.name)+' #'+esc(p.number||'—')+'</option>').join('')+'</select>'+(offense?'':'<label>或与场上球员交换守备位置</label><select id="swapin">'+lineup.map((p,i)=>'<option value="'+i+'">'+p.pos+' · '+esc(name(p.id))+'</option>').join('')+'</select>')+'</div><div class="dialog-actions">'+btn('确认换人','doSub','','primary wide')+(offense?'':btn('交换位置','doSwap','','wide'))+btn('返回记分','subBack','','ghost wide')+'</div>';
+ return '<div class="dialog-body"><h2>'+(offense?'进攻换人':'守备换人 / 换位')+'</h2><p>'+esc(s.teams[team].name)+'</p><p class="muted">'+(offense?'代打继承球数；代跑继承垒位，后续得分记给代跑。替补继承原打序和守备位置。':'替补继承原打序；此前数据保留在原球员名下。')+'</p><label>替换场上球员</label><select id="subout">'+slots.map(p=>'<option value="'+p.index+'">'+(offense?(p.id===batter(s)?'当前打者':'垒上跑者')+' · ':'')+'第 '+(p.index+1)+' 棒 · '+esc(name(p.id))+'</option>').join('')+'</select><label>换入注册球员</label><select id="subin"><option value="">选择替补…</option>'+db.players.filter(p=>!p.deleted&&!s.ejected.includes(p.id)&&!s.teams.some(t=>t.pitcherId===p.id||t.lineup.some(x=>x.id===p.id))).map(p=>'<option value="'+p.id+'">'+esc(p.name)+' #'+esc(p.number||'—')+'</option>').join('')+'</select>'+(offense?'':'<label>或与场上球员交换守备位置</label><select id="swapin">'+lineup.map((p,i)=>'<option value="'+i+'">'+p.pos+' · '+esc(name(p.id))+'</option>').join('')+'</select>')+'</div><div class="dialog-actions">'+btn('确认换人','doSub','','primary wide')+(offense?'':btn('交换位置','doSwap','','wide'))+btn('返回记分','subBack','','ghost wide')+'</div>';
+}
+function pitcherPanel(s){
+  const team=1-s.side,current=s.teams[team].pitcherId;
+  const options=db.players.filter(p=>!p.deleted&&!s.ejected.includes(p.id)&&!s.teams.some(t=>t.pitcherId===p.id||t.lineup.some(x=>x.id===p.id)));
+  return '<div class="dialog-body"><h2>换投</h2><p>'+esc(s.teams[team].name)+' · 当前投手：'+esc(name(current))+'</p><label>换入投手<select id="pitcherIn"><option value="">选择替补…</option>'+options.map(p=>'<option value="'+esc(p.id)+'">'+esc(p.name)+' #'+esc(p.number||'—')+'</option>').join('')+'</select></label></div><div class="dialog-actions">'+btn('确认换投','doPitchingSub','','primary wide')+btn('返回记分','subBack','','ghost wide')+'</div>';
 }
 function recent(s) {
   return (
@@ -479,7 +493,7 @@ async function action(a, v = {}) {
       case "deletePlayer":
         if (
           g &&
-          replay(g).teams.some((t) => t.lineup.some((p) => p.id === v.id))
+          replay(g).teams.some((t) => t.pitcherId===v.id||t.lineup.some((p) => p.id === v.id))
         )
           throw Error("该球员正在比赛中，请先换下或结束比赛");
         if (!(await ask("从注册表删除该球员？历史比赛中的姓名与数据保留。")))
@@ -536,9 +550,10 @@ async function action(a, v = {}) {
         const t = db.setup.teams[+v.team],
           id = v.id;
         if (!id) throw Error("请先选择球员");
-        const available = lineupPositions(db.setup.sport).find((p) => !t.lineup.some((x) => x.pos === p)) || (db.setup.sport === "softball" ? "增额球员" : null);
+        const hasDH=t.lineup.some(p=>p.pos==='指定打击 DH');
+        const available = lineupPositions(db.setup.sport).find((p) => !(db.setup.sport==='baseball'&&hasDH&&p==='投手')&&!t.lineup.some((x) => x.pos === p)) || (db.setup.sport === "softball" ? "增额球员" : null);
         if (!available) throw Error("场上位置已满");
-        if (db.setup.teams.some((t) => t.lineup.some((p) => p.id === id)))
+        if (db.setup.teams.some((t) => t.pitcherId===id||t.lineup.some((p) => p.id === id)))
           throw Error("该球员已在队中");
         t.lineup.push({ id, pos: available });
         $("dialog")?.close();
@@ -564,8 +579,15 @@ async function action(a, v = {}) {
           if (t.lineup.length < 2) throw Error("每队至少加入 2 位球员");
           if (new Set(t.lineup.filter(p=>p.pos!=="增额球员").map(p=>p.pos)).size !== t.lineup.filter(p=>p.pos!=="增额球员").length)
             throw Error("同一队的守备位置不能重复");
-          if (!t.lineup.some((p) => p.pos === "投手"))
-            throw Error("两队都需要指定投手");
+          const hasDH=db.setup.sport==='baseball'&&t.lineup.some(p=>p.pos==='指定打击 DH');
+          const lineupPitcher=t.lineup.some(p=>p.pos==='投手');
+          if(hasDH){
+            if(lineupPitcher)throw Error('使用 DH 时，投手不能占打序席位');
+            if(!t.pitcherId||db.setup.teams.some(x=>x.lineup.some(p=>p.id===t.pitcherId)))throw Error('使用 DH 时，请选择不占打序的投手');
+          }else{
+            if(!lineupPitcher)throw Error('两队都需要指定投手');
+            t.pitcherId=null;
+          }
           if (
             t.lineup.some((p) => db.players.find((x) => x.id === p.id)?.deleted)
           )
@@ -725,8 +747,8 @@ async function action(a, v = {}) {
       case "draftBack": {
         const d=g.draft;
         if(d.runnerForm){d.runnerForm=null;d.selectedRunner=null;break;}
-        if(d.phase==='review'&&!d.awardBases){d.phase='runners';break;}
-        d.phase='contact';d.actions=[];delete d.awardBases;d.selectedRunner=null;break;
+        if(d.phase==='review'&&!d.awardBases&&!d.homeRunType){d.phase='runners';break;}
+        d.phase='contact';d.actions=[];delete d.awardBases;delete d.homeRunType;d.selectedRunner=null;break;
       }
       case "cancelDraft":
         if (!(await ask("取消当前尚未确认的投球录入？"))) return;
@@ -767,6 +789,10 @@ async function action(a, v = {}) {
         panel = "sub";
         sub = true;
         break;
+      case 'pitchingSub':
+        if(g.draft||g.pendingPitch||g.specialDraft)throw Error('请先确认或取消当前本球记录');
+        if(!replay(g).teams[1-replay(g).side].pitcherId)throw Error('当前球队没有独立投手席位');
+        panel='pitcher';sub=true;break;
       case "subBack":
         panel = null;
         $("dialog")?.close();
@@ -793,6 +819,12 @@ async function action(a, v = {}) {
         $("dialog")?.close();
         toast("换人 / 换位已记录");
         break;
+      }
+      case 'doPitchingSub': {
+        const s=replay(g),id=$('#pitcherIn')?.value;
+        if(!id)throw Error('请选择换入投手');
+        updateGame(commit(g,{type:'pitchingSub',team:1-s.side,id}));
+        sub=false;panel=null;$('dialog')?.close();toast('换投已记录');break;
       }
       case "end":
         if (g.draft || g.pendingPitch || g.specialDraft) throw Error("请先确认或取消当前投球，再结束比赛");
@@ -875,6 +907,10 @@ document.addEventListener("change", (e) => {
     if(el.dataset.year){if(el.dataset.year==='season')season=el.value;else historyYear=el.value;selected.clear();render();return;}
     if(el.dataset.environment){db.setup[el.dataset.environment]=el.value.trim();save();return;}
     if(el.dataset.official){db.setup[el.dataset.official]=el.value;save();return;}
+    if(el.dataset.pitcherTeam!==undefined){
+      db.setup.teams[+el.dataset.pitcherTeam].pitcherId=el.value||null;
+      save();render();return;
+    }
     if (el.dataset.select) {
       el.checked
         ? selected.add(el.dataset.select)

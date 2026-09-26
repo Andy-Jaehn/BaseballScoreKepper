@@ -1,4 +1,4 @@
-import {contactText,trajectories,outcomes} from './fair-ui.js';
+import {contactText,trajectories} from './fair-ui.js';
 import { specialNames } from './special-engine.js';
 import { throwingPathLabel } from './throwing-path.js';
 import {replay} from './engine.js';
@@ -12,7 +12,7 @@ export function plateRecords(g){
 export function resultLines(l,person){
  if(!l)return [];const p=l.play||{},actions=p.actions||[],runs=p.runs||[],outs=p.outs||[],bases=l.afterBases||[];
  const queue=[...(l.beforeBases||[]).slice().sort((a,b)=>b.from-a.from),{id:l.batter,from:0}],lines=[];
- if(l.kind==='contact'){lines.push('击球记录：'+contactText({...l,result:l.handlingResult}));if(l.handlingFielder&&!l.awardBases)lines.push('处理球员：'+person(l.handlingFielder));}
+ if(l.kind==='contact'){lines.push('击出方向：'+(l.location?l.location+(['左外','中外','右外'].includes(l.location)?'野':''):'未记录'));lines.push('飞行类型：'+(trajectories[l.trajectory]||'未记录'));lines.push('击球结果：'+contactText({...l,result:l.handlingResult,scoringResult:l.result,hitBases:p.hitBases,homeRunType:p.homeRunType}));if(l.handlingFielder&&!l.awardBases)lines.push('处理球员：'+person(l.handlingFielder));}
  for(const r of queue){const a=actions.find(x=>x.id===r.id),o=outs.find(x=>x.id===r.id),dest=bases.findIndex(x=>x?.id===r.id)+1,scored=runs.some(x=>x.id===r.id);let text='';
  if(o)text=o.mode==='force'?(['','一垒','二垒','三垒','本垒'][o.base||a?.base||1]+'处被封杀'):o.mode==='tag'?'被触杀':o.mode==='strike'?'三振出局':'被接杀 / 规则出局';
  else if(a){text=(a.advance?'进 '+a.advance+' 个垒':'停留')+(a.errorAdvance?' + 失误进 '+a.errorAdvance+' 个垒':'')+' → '+(scored?'得分':r.from+(a.advance||0)+(a.errorAdvance||0)>=4?'到本垒，得分无效':dest?dest+' 垒':'半局结束');}
@@ -32,15 +32,16 @@ export function resultLines(l,person){
  if(l.throwingPath)lines.push('传球路径：'+l.throwingPath+' · '+throwingPathLabel(l.throwingPath));
  if(p.rbi)lines.push('RBI：'+p.rbi);if(l.creditedBatter&&l.creditedBatter!==l.batter)lines.push('三振及打数归属：'+person(l.creditedBatter));return lines;
 }
-export function recordSheets(g,person){const records=plateRecords(g);return [{name:'比赛环境',rows:[['温度（℃）',g.temperature||''],['天气',g.weather||''],['地点',g.location||'']]},{name:'换人换位记录',rows:[['时间','局','球队','类型','打序','换出 / 球员','换入 / 另一球员','位置变化','球数 / 垒位'],...substitutionRows(g,person)]},{name:'打击席位',rows:[['球队','打序席位','球员及背号','守备位置','入场方式'],...lineupRows(g,person)]},{name:'逐打席记录',rows:[['打席','球队','局','打序席位','打者（依次）','状态','结果','开始时间','结束时间','传球路径','击球位置','球路','处理结果','处理球员'],...records.map((r,i)=>[i+1,g.teams[r.side].name,r.inning+(r.side?'下':'上'),r.slot,[...new Set(r.logs.map(l=>l.batter))].map(person).join(' → '),r.complete?'已完成':'未完成',r.logs.at(-1).summary,r.startedAt||'',r.endedAt||'',r.logs.filter(l=>l.throwingPath).map(l=>l.throwingPath+' · '+throwingPathLabel(l.throwingPath)).join('；'),r.logs.filter(l=>l.kind==='contact').map(l=>l.location||'').join('；'),r.logs.filter(l=>l.kind==='contact').map(l=>trajectories[l.trajectory]||'').join('；'),r.logs.filter(l=>l.kind==='contact').map(l=>l.awardBases?'场地规则'+['','一垒安打','二垒安打','三垒安打','本垒打'][l.awardBases]:outcomes[l.handlingResult]||'').join('；'),r.logs.filter(l=>l.handlingFielder&&!l.awardBases).map(l=>person(l.handlingFielder)).join('；')])]},{name:'打席内投球与跑垒',rows:[['打席','球序/事件序','投手','打者','投球 / 判罚','结果','跑者及统计','时间'],...records.flatMap((r,i)=>r.logs.map((l,j)=>[i+1,j+1,person(l.pitcher),person(l.batter),pitchLabel(l.kind),l.summary,resultLines(l,person).join('；'),l.time||'']))]}];}
+export function recordSheets(g,person){const records=plateRecords(g);return [{name:'比赛环境',rows:[['温度（℃）',g.temperature||''],['天气',g.weather||''],['地点',g.location||'']]},{name:'换人换位记录',rows:[['时间','局','球队','类型','打序','换出 / 球员','换入 / 另一球员','位置变化','球数 / 垒位'],...substitutionRows(g,person)]},{name:'打击席位',rows:[['球队','打序席位','球员及背号','守备位置','入场方式'],...lineupRows(g,person)]},{name:'逐打席记录',rows:[['打席','球队','局','打序席位','打者（依次）','状态','结果','开始时间','结束时间','传球路径','击球位置','球路','处理结果','处理球员'],...records.map((r,i)=>[i+1,g.teams[r.side].name,r.inning+(r.side?'下':'上'),r.slot,[...new Set(r.logs.map(l=>l.batter))].map(person).join(' → '),r.complete?'已完成':'未完成',r.logs.at(-1).summary,r.startedAt||'',r.endedAt||'',r.logs.filter(l=>l.throwingPath).map(l=>l.throwingPath+' · '+throwingPathLabel(l.throwingPath)).join('；'),r.logs.filter(l=>l.kind==='contact').map(l=>l.location||'').join('；'),r.logs.filter(l=>l.kind==='contact').map(l=>trajectories[l.trajectory]||'').join('；'),r.logs.filter(l=>l.kind==='contact').map(l=>contactText({...l,location:null,trajectory:null,result:l.handlingResult,scoringResult:l.result,hitBases:l.play?.hitBases})).join('；'),r.logs.filter(l=>l.handlingFielder&&!l.awardBases).map(l=>person(l.handlingFielder)).join('；')])]},{name:'打席内投球与跑垒',rows:[['打席','球序/事件序','投手','打者','投球 / 判罚','结果','跑者及统计','时间'],...records.flatMap((r,i)=>r.logs.map((l,j)=>[i+1,j+1,person(l.pitcher),person(l.batter),pitchLabel(l.kind),l.summary,resultLines(l,person).join('；'),l.time||'']))]}];}
 
 export function lineupRows(g,person){
  const teams=g.teams.map(t=>({...t,lineup:t.lineup.map(p=>({...p}))})),rows=[];
- teams.forEach(t=>t.lineup.forEach((p,i)=>rows.push([t.name,i+1,person(p.id),p.pos,'首发'])));
+ teams.forEach(t=>{t.lineup.forEach((p,i)=>rows.push([t.name,i+1,person(p.id),p.pos,'首发']));if(t.pitcherId)rows.push([t.name,'',person(t.pitcherId),'投手','先发（不占打序）']);});
  for(const e of g.events){
  if(e.type==='sub'){const t=teams[e.team];if(e.swap!==undefined){[t.lineup[e.index].pos,t.lineup[e.swap].pos]=[t.lineup[e.swap].pos,t.lineup[e.index].pos];}else{const p=t.lineup[e.index];p.id=e.id;rows.push([t.name,e.index+1,person(p.id),p.pos,'替补']);}}
+ if(e.type==='pitchingSub'){const t=teams[e.team];t.pitcherId=e.id;rows.push([t.name,'',person(e.id),'投手','替补（不占打序）']);}
  if(e.kind==='eject'&&e.replacementId){for(const t of teams){const i=t.lineup.findIndex(p=>p.id===e.personId);if(i>=0){t.lineup[i].id=e.replacementId;rows.push([t.name,i+1,person(e.replacementId),t.lineup[i].pos,'判罚替换（原球员 '+person(e.personId)+'）']);}}}
  }return rows;
 }
 
-export function substitutionRows(g,person){return replay(g).substitutions.map(r=>[r.time||'',r.inning+' 局'+(r.side?'下':'上'),g.teams[r.team].name,r.kind,'第 '+r.slot+' 棒'+(r.otherSlot?' ↔ 第 '+r.otherSlot+' 棒':''),person(r.outId),person(r.inId||r.otherId),r.otherPosition?r.position+' ↔ '+r.otherPosition:r.position,'B '+r.balls+' / S '+r.strikes+(r.base?' · '+r.base+' 垒':'')]);}
+export function substitutionRows(g,person){return replay(g).substitutions.map(r=>[r.time||'',r.inning+' 局'+(r.side?'下':'上'),g.teams[r.team].name,r.kind,r.slot?'第 '+r.slot+' 棒'+(r.otherSlot?' ↔ 第 '+r.otherSlot+' 棒':''):'不占打序',person(r.outId),person(r.inId||r.otherId),r.otherPosition?r.position+' ↔ '+r.otherPosition:r.position,'B '+r.balls+' / S '+r.strikes+(r.base?' · '+r.base+' 垒':'')]);}

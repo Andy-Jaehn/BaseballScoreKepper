@@ -123,20 +123,29 @@ export function earnedRunDetails(log) {
           step.decisions.push({token:o.token, reason:valid?'shadow-out':'out-not-established', mode:o.mode});
           return valid;
         });
+        const wouldBeOuts = (play.actions || []).filter(a =>
+          a.wouldOutWithoutError && a.from > 0 && available.has(a.token) &&
+          !outs.some(o => o.token === a.token));
         if (lostOut) step.decisions.push({token:play.batter.token,reason:'missed-out'});
-        const virtualThird = outs[2 - t.outs - lostOut];
+        for (const a of wouldBeOuts)
+          step.decisions.push({token:a.token,reason:'error-prevented-out'});
+        const virtualThird = outs[2 - t.outs - lostOut - wouldBeOuts.length];
         const thirdForce =
-          t.outs + lostOut >= 3 ||
-          (t.outs + lostOut + outs.length >= 3 &&
+          t.outs + lostOut + wouldBeOuts.length >= 3 ||
+          (t.outs + lostOut + wouldBeOuts.length + outs.length >= 3 &&
             virtualThird &&
             (virtualThird.mode === "force" ||
               (virtualThird.from === 0 && !virtualThird.safeBases)));
         if (thirdForce) {
-          t.outs += lostOut + outs.length;
+          t.outs += lostOut + wouldBeOuts.length + outs.length;
           continue;
         }
         const beforeTokens = new Set(t.bases.keys());
         for (const o of outs) t.bases.delete(o.token);
+        for (const a of wouldBeOuts) {
+          t.bases.delete(a.token);
+          t.retired.add(a.token);
+        }
         // Process leaders first so shadows never share a base or pass one another.
         const ordered = [...t.bases.values()].sort((a,b)=>b.pos-a.pos);
         let limit = 4;
@@ -169,7 +178,8 @@ export function earnedRunDetails(log) {
         else if (play.result === "FC" && !play.batterOut && !missedBatter) {
           // A fielder's choice preserves the responsibility of the retired runner.
           const retired = (play.outs || []).find((o) => o.from > 0);
-          if (!retired || beforeTokens.has(retired.token)) {
+          if (wouldBeOuts.length) safe(play.batter, 1);
+          else if (!retired || beforeTokens.has(retired.token)) {
             // Rebuild the force chain instead of overwriting a shadow on first.
             const force = pos => {
               const r=[...t.bases.values()].find(r=>r.pos===pos);
@@ -187,7 +197,7 @@ export function earnedRunDetails(log) {
           force(1);safe(play.batter,1);
         }
         if(play.result==='SO'&&!play.batterOut&&!lostOut&&!missedBatter){const a=play.actions.find(a=>a.from===0);if(a)safe(play.batter,a.advance);}
-        t.outs += lostOut + outs.length;
+        t.outs += lostOut + wouldBeOuts.length + outs.length;
       } finally {
         step.afterOuts = t.outs;
         step.afterBases = [...t.bases.values()].map(r=>({token:r.token,pos:r.pos}));

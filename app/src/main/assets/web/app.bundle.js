@@ -381,15 +381,22 @@
             step.decisions.push({ token: o.token, reason: valid ? "shadow-out" : "out-not-established", mode: o.mode });
             return valid;
           });
+          const wouldBeOuts = (play.actions || []).filter((a) => a.wouldOutWithoutError && a.from > 0 && available.has(a.token) && !outs.some((o) => o.token === a.token));
           if (lostOut) step.decisions.push({ token: play.batter.token, reason: "missed-out" });
-          const virtualThird = outs[2 - t.outs - lostOut];
-          const thirdForce = t.outs + lostOut >= 3 || t.outs + lostOut + outs.length >= 3 && virtualThird && (virtualThird.mode === "force" || virtualThird.from === 0 && !virtualThird.safeBases);
+          for (const a of wouldBeOuts)
+            step.decisions.push({ token: a.token, reason: "error-prevented-out" });
+          const virtualThird = outs[2 - t.outs - lostOut - wouldBeOuts.length];
+          const thirdForce = t.outs + lostOut + wouldBeOuts.length >= 3 || t.outs + lostOut + wouldBeOuts.length + outs.length >= 3 && virtualThird && (virtualThird.mode === "force" || virtualThird.from === 0 && !virtualThird.safeBases);
           if (thirdForce) {
-            t.outs += lostOut + outs.length;
+            t.outs += lostOut + wouldBeOuts.length + outs.length;
             continue;
           }
           const beforeTokens = new Set(t.bases.keys());
           for (const o of outs) t.bases.delete(o.token);
+          for (const a of wouldBeOuts) {
+            t.bases.delete(a.token);
+            t.retired.add(a.token);
+          }
           const ordered = [...t.bases.values()].sort((a, b) => b.pos - a.pos);
           let limit = 4;
           for (const old of ordered) {
@@ -424,7 +431,8 @@
             safe(play.batter, play.hitBases);
           } else if (play.result === "FC" && !play.batterOut && !missedBatter) {
             const retired = (play.outs || []).find((o) => o.from > 0);
-            if (!retired || beforeTokens.has(retired.token)) {
+            if (wouldBeOuts.length) safe(play.batter, 1);
+            else if (!retired || beforeTokens.has(retired.token)) {
               const force = (pos) => {
                 const r = [...t.bases.values()].find((r2) => r2.pos === pos);
                 if (r) {
@@ -452,7 +460,7 @@
             const a = play.actions.find((a2) => a2.from === 0);
             if (a) safe(play.batter, a.advance);
           }
-          t.outs += lostOut + outs.length;
+          t.outs += lostOut + wouldBeOuts.length + outs.length;
         } finally {
           step.afterOuts = t.outs;
           step.afterBases = [...t.bases.values()].map((r) => ({ token: r.token, pos: r.pos }));
@@ -610,7 +618,7 @@
   var batter = (s) => s.teams[s.side].lineup[s.order[s.side] % s.teams[s.side].lineup.length].id;
   var pitcher = (s) => {
     var _a;
-    return (_a = s.teams[1 - s.side].lineup.find((p) => p.pos === "\u6295\u624B")) == null ? void 0 : _a.id;
+    return s.teams[1 - s.side].pitcherId || ((_a = s.teams[1 - s.side].lineup.find((p) => p.pos === "\u6295\u624B")) == null ? void 0 : _a.id);
   };
   function add(s, id, k, n = 1) {
     var _a, _b;
@@ -687,10 +695,34 @@
       add(s, p, "K");
     }
   }
-  function apply(s, g, e, provisional = false) {
+  function applyCore(s, g, e, provisional = false) {
     var _a, _b, _c;
-    if (e.type === "special") return applySpecial(s, g, e, { batter, pitcher, runnerQueue, clone, add, out, run, plate, finish, reset, apply, isDefender });
+    if (e.type === "special") return applySpecial(s, g, e, { batter, pitcher, runnerQueue, clone, add, out, run, plate, finish, reset, apply: applyCore, isDefender });
     if (e.type === "ruling" && e.kind !== "awardWalk") return applyRuling(s, g, e);
+    if (e.type === "pitchingSub") {
+      if (![0, 1].includes(e.team) || !e.id) throw Error("\u65E0\u6548\u6362\u6295");
+      const team = s.teams[e.team];
+      if (team.lineup.some((p2) => p2.pos === "\u6295\u624B")) throw Error("\u6295\u624B\u5360\u6253\u5E8F\u65F6\uFF0C\u8BF7\u4F7F\u7528\u5B88\u5907\u6362\u4EBA");
+      const old = team.pitcherId;
+      if (!old || old === e.id || s.ejected.includes(e.id) || s.teams.some((t) => t.lineup.some((p2) => p2.id === e.id) || t.pitcherId === e.id))
+        throw Error("\u8BF7\u9009\u62E9\u672A\u4E0A\u573A\u7684\u66FF\u8865\u6295\u624B");
+      team.pitcherId = e.id;
+      s.substitutions.push({
+        eventId: e.eventId,
+        time: e.time,
+        inning: s.inning,
+        side: s.side,
+        team: e.team,
+        slot: null,
+        outId: old,
+        inId: e.id,
+        position: "\u6295\u624B",
+        kind: "\u6362\u6295",
+        balls: s.b,
+        strikes: s.s
+      });
+      return;
+    }
     if (e.type === "sub") {
       if (e.team !== 0 && e.team !== 1) throw Error("\u65E0\u6548\u7403\u961F");
       const l = s.teams[e.team].lineup, old = l[e.index];
@@ -704,7 +736,7 @@
         record2.otherPosition = l[e.swap].pos;
         [old.pos, l[e.swap].pos] = [l[e.swap].pos, old.pos];
       } else {
-        if (!e.id || s.ejected.includes(e.id) || s.teams.some((t) => t.lineup.some((p2) => p2.id === e.id))) throw Error("\u8BF7\u9009\u62E9\u672A\u5728\u573A\u4E14\u672A\u88AB\u9A71\u9010\u7684\u66FF\u8865");
+        if (!e.id || s.ejected.includes(e.id) || s.teams.some((t) => t.lineup.some((p2) => p2.id === e.id) || t.pitcherId === e.id)) throw Error("\u8BF7\u9009\u62E9\u672A\u5728\u573A\u4E14\u672A\u88AB\u9A71\u9010\u7684\u66FF\u8865");
         if (offense && old.id !== batter(s) && !runner) throw Error("\u8FDB\u653B\u6362\u4EBA\u53EA\u80FD\u66FF\u6362\u5F53\u524D\u6253\u8005\u6216\u5792\u4E0A\u8DD1\u8005");
         if (offense && old.id === batter(s) && s.s === 2 && g.sport === "baseball") s.strikeoutBatter || (s.strikeoutBatter = old.id);
         l[e.index] = { id: e.id, pos: old.pos };
@@ -903,6 +935,8 @@
         if (!complete) throw Error("\u8BF7\u5B8C\u6210\u6240\u6709\u8DD1\u8005\u7684\u8BB0\u5F55");
         if (result === "H" && (!hitBases || hitBases > 4))
           throw Error("\u5B89\u6253\u5792\u6570\u65E0\u6548");
+        if (e.homeRunType && (hitBases !== 4 || e.homeRunType !== "overFence"))
+          throw Error("\u672C\u5792\u6253\u7C7B\u578B\u65E0\u6548");
         const ballType = { fly: "FB", line: "LD", popup: "IFF", ground: "GB", bunt: "GB" }[e.trajectory];
         if (ballType) {
           add(s, id, ballType);
@@ -930,7 +964,7 @@
         const outLabel = tp ? "\u4E09\u6740\u6253" : dp ? "\u53CC\u6740\u6253" : forceEndsHalf && !batterOut ? "\u5C01\u6740\u7ED3\u675F\u534A\u5C40" : e.result === "infieldFly" ? "\u5185\u91CE\u9AD8\u98DE\u7403\u51FA\u5C40" : caught ? e.trajectory === "popup" ? "\u5185\u91CE\u9AD8\u98DE\u63A5\u6740" : e.trajectory === "fly" ? "\u9AD8\u98DE\u7403\u51FA\u5C40" : "\u5E73\u98DE\u63A5\u6740\u51FA\u5C40" : ["ground", "bunt"].includes(e.trajectory) ? "\u5730\u6EDA\u7403\u51FA\u5C40" : "\u51FB\u7403\u51FA\u5C40";
         summary2 = {
           OUT: outLabel,
-          H: ["", "\u4E00\u5792\u5B89\u6253", "\u4E8C\u5792\u5B89\u6253", "\u4E09\u5792\u5B89\u6253", "\u5168\u5792\u6253"][hitBases],
+          H: hitBases === 4 ? e.homeRunType === "overFence" ? "\u672C\u5792\u6253" : "\u573A\u5185\u672C\u5792\u6253" : ["", "\u4E00\u5792\u5B89\u6253", "\u4E8C\u5792\u5B89\u6253", "\u4E09\u5792\u5B89\u6253"][hitBases],
           E: "\u5931\u8BEF\u4E0A\u5792",
           FC: "\u91CE\u624B\u9009\u62E9\u4E0A\u5792",
           SF: "\u727A\u7272\u98DE\u7403",
@@ -948,6 +982,7 @@
           reachedError: !forceEndsHalf && !batterOut && (error || result === "E"),
           forceEndsHalf,
           hitBases,
+          homeRunType: hitBases === 4 ? e.homeRunType === "overFence" ? "overFence" : "insidePark" : null,
           runs: valid,
           outs,
           actions: effectiveActions.map((a) => ({
@@ -995,10 +1030,25 @@
       handlingResult: e.result,
       handlingFielder: e.fielder,
       awardBases: e.awardBases,
+      homeRunType: (play == null ? void 0 : play.homeRunType) || null,
       zone: e.zone,
       trajectory: e.trajectory,
       throwingPath: e.throwingPath || ""
     });
+  }
+  function apply(s, g, e, provisional = false) {
+    var _a;
+    if (!Array.isArray(e.fieldingCredits)) return applyCore(s, g, e, provisional);
+    for (const credit of e.fieldingCredits) {
+      if (typeof credit.id !== "string" || !credit.id || ["PO", "A", "E"].some((k) => !Number.isInteger(credit[k] || 0) || (credit[k] || 0) < 0))
+        throw Error("\u5B88\u5907\u8BB0\u529F\u65E0\u6548");
+    }
+    const before = Object.fromEntries(Object.entries(s.stats).map(([id, st]) => [id, { PO: st.PO, A: st.A, E: st.E }]));
+    applyCore(s, g, e, provisional);
+    for (const [id, st] of Object.entries(s.stats))
+      for (const k of ["PO", "A", "E"]) st[k] = ((_a = before[id]) == null ? void 0 : _a[k]) || 0;
+    for (const credit of e.fieldingCredits)
+      for (const k of ["PO", "A", "E"]) if (credit[k]) add(s, credit.id, k, credit[k]);
   }
   function replay(g, includeDraft = false) {
     var _a;
@@ -1170,7 +1220,8 @@
   var defaults = ["\u5DE6\u5916\u91CE", "\u5DE6\u5916\u91CE", "\u4E2D\u5916\u91CE", "\u53F3\u5916\u91CE", "\u53F3\u5916\u91CE", "\u4E09\u5792\u624B", "\u6E38\u51FB\u624B", "\u4E8C\u5792\u624B", "\u4E8C\u5792\u624B", "\u4E00\u5792\u624B", "\u6295\u624B"];
   var colors = ["#176ab4", "#b4510d", "#8b43b1", "#167b57"];
   var points = [[50, 84], [84, 50], [50, 16], [16, 50], [50, 84]];
-  var contactText = (d) => (d.location ? d.location + (["\u5DE6\u5916", "\u4E2D\u5916", "\u53F3\u5916"].includes(d.location) ? "\u91CE" : "") + "\u65B9\u5411" : "") + (trajectories[d.trajectory] || "") + (d.awardBases ? "\u573A\u5730\u89C4\u5219" + ["", "\u4E00\u5792\u5B89\u6253", "\u4E8C\u5792\u5B89\u6253", "\u4E09\u5792\u5B89\u6253", "\u672C\u5792\u6253"][d.awardBases] : outcomes[d.result] || "");
+  var hitNames = ["", "\u4E00\u5792\u5B89\u6253", "\u4E8C\u5792\u5B89\u6253", "\u4E09\u5792\u5B89\u6253", "\u672C\u5792\u6253"];
+  var contactText = (d) => (d.location ? d.location + (["\u5DE6\u5916", "\u4E2D\u5916", "\u53F3\u5916"].includes(d.location) ? "\u91CE" : "") + "\u65B9\u5411" : "") + (trajectories[d.trajectory] || "") + (d.awardBases ? "\u573A\u5730\u89C4\u5219" + hitNames[d.awardBases] : d.scoringResult === "H" && d.hitBases ? d.hitBases === 4 ? d.homeRunType === "overFence" ? "\u672C\u5792\u6253" : "\u573A\u5185\u672C\u5792\u6253" : hitNames[d.hitBases] : outcomes[d.result] || "");
   var queue = (s, d) => runnerQueue(s).filter((r) => r.from || !["catch", "infieldFly"].includes(d.result));
   var current = (r, d) => {
     const a = d.actions.find((a2) => a2.id === r.id);
@@ -1192,8 +1243,10 @@
   }
   function fairDialog(g, ctx) {
     const { btn: btn2, esc: esc2, name: name2 } = ctx, d = g.draft, s = replay(g), q = queue(s, d);
-    const opts = (value) => s.teams[1 - s.side].lineup.filter(isDefender).map((p) => `<option value="${esc2(p.id)}" ${p.id === value ? "selected" : ""}>${p.pos} \xB7 ${esc2(name2(p.id))}</option>`).join("");
-    if (!d.phase || d.phase === "contact") return `<section class="fair-input"><h2>Fair \xB7 \u754C\u5185\u7403</h2><label>\u51FB\u7403\u4F4D\u7F6E</label>${zones.map((row) => `<div class="fair-row" style="--count:${row.length}">${row.map((z) => btn2(z, "fairZone", `data-value="${z}" aria-pressed="${d.location === z}"`, d.location === z ? "selected" : "")).join("")}</div>`).join("")}<hr><label>\u7403\u8DEF</label><div class="fair-row" style="--count:4">${Object.entries(trajectories).map(([k, v]) => btn2(v.replace("\u7403", ""), "fairTrajectory", `data-value="${k}" aria-pressed="${d.trajectory === k}"`, d.trajectory === k ? "selected" : "")).join("")}</div><hr><label>\u5904\u7406\u7ED3\u679C</label><div class="fair-row" style="--count:4">${Object.entries(outcomes).map(([k, v]) => btn2(v, "fairResult", `data-value="${k}" aria-pressed="${d.result === k}"`, d.result === k ? "selected" : "")).join("")}${btn2("\u573A\u5730\u89C4\u5219", "fairAwardMenu", 'aria-expanded="' + !!d.awardOpen + '"', d.awardOpen ? "selected" : "")}</div>${d.awardOpen ? `<div class="fair-overlay"><div class="fair-bubble" role="dialog" aria-label="\u573A\u5730\u89C4\u5219"><h3>\u573A\u5730\u89C4\u5219</h3><div class="fair-awards">${[1, 2, 3, 4].map((n) => btn2("\u573A\u5730\u89C4\u5219" + ["", "\u4E00\u5792\u5B89\u6253", "\u4E8C\u5792\u5B89\u6253", "\u4E09\u5792\u5B89\u6253", "\u672C\u5792\u6253"][n], "fairAward", `data-n="${n}"`)).join("")}</div>${btn2("\u8FD4\u56DE", "fairAwardMenu", "", "ghost wide")}</div></div>` : ""}<label>\u5904\u7406\u7403\u5458\uFF08\u6309\u4F4D\u7F6E\u9884\u9009\uFF0C\u53EF\u66F4\u6539\uFF09</label><select data-contact-fielder>${opts(d.fielder)}</select><p class="fair-preview" aria-live="polite">${esc2(contactText(d) || "\u9009\u62E9\u4F4D\u7F6E\u3001\u7403\u8DEF\u548C\u5904\u7406\u7ED3\u679C")}${d.result === "error" ? " \xB7 " + esc2(name2(d.fielder)) + " \u8BB0 E" : ""}</p>${btn2("\u786E\u8BA4\u672C\u7403", "fairStart", "", "primary wide")}</section>`;
+    const defense = s.teams[1 - s.side], defenders = defense.lineup.filter(isDefender);
+    if (defense.pitcherId && !defenders.some((p) => p.pos === "\u6295\u624B")) defenders.unshift({ id: defense.pitcherId, pos: "\u6295\u624B" });
+    const opts = (value) => defenders.map((p) => `<option value="${esc2(p.id)}" ${p.id === value ? "selected" : ""}>${p.pos} \xB7 ${esc2(name2(p.id))}</option>`).join("");
+    if (!d.phase || d.phase === "contact") return `<section class="fair-input"><h2>Fair \xB7 \u754C\u5185\u7403</h2><label>\u51FB\u7403\u4F4D\u7F6E</label>${zones.map((row) => `<div class="fair-row" style="--count:${row.length}">${row.map((z) => btn2(z, "fairZone", `data-value="${z}" aria-pressed="${d.location === z}"`, d.location === z ? "selected" : "")).join("")}</div>`).join("")}<hr><label>\u7403\u8DEF</label><div class="fair-row" style="--count:4">${Object.entries(trajectories).map(([k, v]) => btn2(v.replace("\u7403", ""), "fairTrajectory", `data-value="${k}" aria-pressed="${d.trajectory === k}"`, d.trajectory === k ? "selected" : "")).join("")}</div><hr><label>\u5904\u7406\u7ED3\u679C</label><div class="fair-row" style="--count:4">${Object.entries(outcomes).map(([k, v]) => btn2(v, "fairResult", `data-value="${k}" aria-pressed="${d.result === k}"`, d.result === k ? "selected" : "")).join("")}${btn2("\u573A\u5730\u89C4\u5219", "fairAwardMenu", 'aria-expanded="' + !!d.awardOpen + '"', d.awardOpen ? "selected" : "")}</div>${d.awardOpen ? `<div class="fair-overlay"><div class="fair-bubble" role="dialog" aria-label="\u573A\u5730\u89C4\u5219"><h3>\u573A\u5730\u89C4\u5219</h3><div class="fair-awards">${btn2("\u573A\u5730\u89C4\u5219\u4E00\u5792\u5B89\u6253", "fairAward", 'data-n="1"')}${btn2("\u573A\u5730\u89C4\u5219\u4E8C\u5792\u5B89\u6253", "fairAward", 'data-n="2"')}${btn2("\u573A\u5730\u89C4\u5219\u4E09\u5792\u5B89\u6253", "fairAward", 'data-n="3"')}${btn2("\u672C\u5792\u6253", "fairHomeRun")}</div>${btn2("\u8FD4\u56DE", "fairAwardMenu", "", "ghost wide")}</div></div>` : ""}<label>\u5904\u7406\u7403\u5458\uFF08\u6309\u4F4D\u7F6E\u9884\u9009\uFF0C\u53EF\u66F4\u6539\uFF09</label><select data-contact-fielder>${opts(d.fielder)}</select><p class="fair-preview" aria-live="polite">${esc2(contactText(d) || "\u9009\u62E9\u4F4D\u7F6E\u3001\u7403\u8DEF\u548C\u5904\u7406\u7ED3\u679C")}${d.result === "error" ? " \xB7 " + esc2(name2(d.fielder)) + " \u8BB0 E" : ""}</p>${btn2("\u786E\u8BA4\u672C\u7403", "fairStart", "", "primary wide")}</section>`;
     if (d.phase === "review") return null;
     if (d.runnerForm) {
       const f = d.runnerForm, r = q.find((r2) => r2.id === f.id), at = current(r, d), limit = advanceLimit(s, d.actions, r.id) - (at - r.from);
@@ -1227,7 +1280,8 @@
     if (a === "fairZone") {
       d.location = v.value;
       d.zone = zones[0].includes(v.value) ? "\u5916\u91CE" : "\u5185\u91CE";
-      d.fielder = (_a = s.teams[1 - s.side].lineup.find((p) => p.pos === defaults[zones.flat().indexOf(v.value)])) == null ? void 0 : _a.id;
+      const defense = s.teams[1 - s.side], pos = defaults[zones.flat().indexOf(v.value)];
+      d.fielder = ((_a = defense.lineup.find((p) => p.pos === pos)) == null ? void 0 : _a.id) || (pos === "\u6295\u624B" ? defense.pitcherId : void 0);
     }
     if (a === "fairTrajectory") d.trajectory = v.value;
     if (a === "fairResult") {
@@ -1235,12 +1289,17 @@
       d.awardOpen = false;
     }
     if (a === "fairAwardMenu") d.awardOpen = !d.awardOpen;
-    if (a === "fairStart" || a === "fairAward") {
+    if (a === "fairStart" || a === "fairAward" || a === "fairHomeRun") {
       if (!d.location || !d.trajectory) throw Error("\u8BF7\u5148\u9009\u62E9\u51FB\u7403\u4F4D\u7F6E\u548C\u7403\u8DEF");
       if (a === "fairAward") {
         d.awardBases = +v.n;
         d.result = "stop";
         d.actions = runnerQueue(s).map((r) => ({ id: r.id, mode: "advance", advance: Math.min(+v.n, 4 - r.from) }));
+        d.phase = "review";
+      } else if (a === "fairHomeRun") {
+        d.homeRunType = "overFence";
+        d.result = "stop";
+        d.actions = runnerQueue(s).map((r) => ({ id: r.id, mode: "advance", advance: 4 - r.from }));
         d.phase = "review";
       } else {
         if (!d.result || !d.fielder) throw Error("\u8BF7\u9009\u62E9\u5904\u7406\u7ED3\u679C\u548C\u5904\u7406\u7403\u5458");
@@ -1377,7 +1436,9 @@
     const p = l.play || {}, actions = p.actions || [], runs = p.runs || [], outs = p.outs || [], bases = l.afterBases || [];
     const queue2 = [...(l.beforeBases || []).slice().sort((a, b) => b.from - a.from), { id: l.batter, from: 0 }], lines = [];
     if (l.kind === "contact") {
-      lines.push("\u51FB\u7403\u8BB0\u5F55\uFF1A" + contactText({ ...l, result: l.handlingResult }));
+      lines.push("\u51FB\u51FA\u65B9\u5411\uFF1A" + (l.location ? l.location + (["\u5DE6\u5916", "\u4E2D\u5916", "\u53F3\u5916"].includes(l.location) ? "\u91CE" : "") : "\u672A\u8BB0\u5F55"));
+      lines.push("\u98DE\u884C\u7C7B\u578B\uFF1A" + (trajectories[l.trajectory] || "\u672A\u8BB0\u5F55"));
+      lines.push("\u51FB\u7403\u7ED3\u679C\uFF1A" + contactText({ ...l, result: l.handlingResult, scoringResult: l.result, hitBases: p.hitBases, homeRunType: p.homeRunType }));
       if (l.handlingFielder && !l.awardBases) lines.push("\u5904\u7406\u7403\u5458\uFF1A" + person(l.handlingFielder));
     }
     for (const r of queue2) {
@@ -1412,11 +1473,17 @@
   }
   function recordSheets(g, person) {
     const records = plateRecords(g);
-    return [{ name: "\u6BD4\u8D5B\u73AF\u5883", rows: [["\u6E29\u5EA6\uFF08\u2103\uFF09", g.temperature || ""], ["\u5929\u6C14", g.weather || ""], ["\u5730\u70B9", g.location || ""]] }, { name: "\u6362\u4EBA\u6362\u4F4D\u8BB0\u5F55", rows: [["\u65F6\u95F4", "\u5C40", "\u7403\u961F", "\u7C7B\u578B", "\u6253\u5E8F", "\u6362\u51FA / \u7403\u5458", "\u6362\u5165 / \u53E6\u4E00\u7403\u5458", "\u4F4D\u7F6E\u53D8\u5316", "\u7403\u6570 / \u5792\u4F4D"], ...substitutionRows(g, person)] }, { name: "\u6253\u51FB\u5E2D\u4F4D", rows: [["\u7403\u961F", "\u6253\u5E8F\u5E2D\u4F4D", "\u7403\u5458\u53CA\u80CC\u53F7", "\u5B88\u5907\u4F4D\u7F6E", "\u5165\u573A\u65B9\u5F0F"], ...lineupRows(g, person)] }, { name: "\u9010\u6253\u5E2D\u8BB0\u5F55", rows: [["\u6253\u5E2D", "\u7403\u961F", "\u5C40", "\u6253\u5E8F\u5E2D\u4F4D", "\u6253\u8005\uFF08\u4F9D\u6B21\uFF09", "\u72B6\u6001", "\u7ED3\u679C", "\u5F00\u59CB\u65F6\u95F4", "\u7ED3\u675F\u65F6\u95F4", "\u4F20\u7403\u8DEF\u5F84", "\u51FB\u7403\u4F4D\u7F6E", "\u7403\u8DEF", "\u5904\u7406\u7ED3\u679C", "\u5904\u7406\u7403\u5458"], ...records.map((r, i) => [i + 1, g.teams[r.side].name, r.inning + (r.side ? "\u4E0B" : "\u4E0A"), r.slot, [...new Set(r.logs.map((l) => l.batter))].map(person).join(" \u2192 "), r.complete ? "\u5DF2\u5B8C\u6210" : "\u672A\u5B8C\u6210", r.logs.at(-1).summary, r.startedAt || "", r.endedAt || "", r.logs.filter((l) => l.throwingPath).map((l) => l.throwingPath + " \xB7 " + throwingPathLabel(l.throwingPath)).join("\uFF1B"), r.logs.filter((l) => l.kind === "contact").map((l) => l.location || "").join("\uFF1B"), r.logs.filter((l) => l.kind === "contact").map((l) => trajectories[l.trajectory] || "").join("\uFF1B"), r.logs.filter((l) => l.kind === "contact").map((l) => l.awardBases ? "\u573A\u5730\u89C4\u5219" + ["", "\u4E00\u5792\u5B89\u6253", "\u4E8C\u5792\u5B89\u6253", "\u4E09\u5792\u5B89\u6253", "\u672C\u5792\u6253"][l.awardBases] : outcomes[l.handlingResult] || "").join("\uFF1B"), r.logs.filter((l) => l.handlingFielder && !l.awardBases).map((l) => person(l.handlingFielder)).join("\uFF1B")])] }, { name: "\u6253\u5E2D\u5185\u6295\u7403\u4E0E\u8DD1\u5792", rows: [["\u6253\u5E2D", "\u7403\u5E8F/\u4E8B\u4EF6\u5E8F", "\u6295\u624B", "\u6253\u8005", "\u6295\u7403 / \u5224\u7F5A", "\u7ED3\u679C", "\u8DD1\u8005\u53CA\u7EDF\u8BA1", "\u65F6\u95F4"], ...records.flatMap((r, i) => r.logs.map((l, j) => [i + 1, j + 1, person(l.pitcher), person(l.batter), pitchLabel(l.kind), l.summary, resultLines(l, person).join("\uFF1B"), l.time || ""]))] }];
+    return [{ name: "\u6BD4\u8D5B\u73AF\u5883", rows: [["\u6E29\u5EA6\uFF08\u2103\uFF09", g.temperature || ""], ["\u5929\u6C14", g.weather || ""], ["\u5730\u70B9", g.location || ""]] }, { name: "\u6362\u4EBA\u6362\u4F4D\u8BB0\u5F55", rows: [["\u65F6\u95F4", "\u5C40", "\u7403\u961F", "\u7C7B\u578B", "\u6253\u5E8F", "\u6362\u51FA / \u7403\u5458", "\u6362\u5165 / \u53E6\u4E00\u7403\u5458", "\u4F4D\u7F6E\u53D8\u5316", "\u7403\u6570 / \u5792\u4F4D"], ...substitutionRows(g, person)] }, { name: "\u6253\u51FB\u5E2D\u4F4D", rows: [["\u7403\u961F", "\u6253\u5E8F\u5E2D\u4F4D", "\u7403\u5458\u53CA\u80CC\u53F7", "\u5B88\u5907\u4F4D\u7F6E", "\u5165\u573A\u65B9\u5F0F"], ...lineupRows(g, person)] }, { name: "\u9010\u6253\u5E2D\u8BB0\u5F55", rows: [["\u6253\u5E2D", "\u7403\u961F", "\u5C40", "\u6253\u5E8F\u5E2D\u4F4D", "\u6253\u8005\uFF08\u4F9D\u6B21\uFF09", "\u72B6\u6001", "\u7ED3\u679C", "\u5F00\u59CB\u65F6\u95F4", "\u7ED3\u675F\u65F6\u95F4", "\u4F20\u7403\u8DEF\u5F84", "\u51FB\u7403\u4F4D\u7F6E", "\u7403\u8DEF", "\u5904\u7406\u7ED3\u679C", "\u5904\u7406\u7403\u5458"], ...records.map((r, i) => [i + 1, g.teams[r.side].name, r.inning + (r.side ? "\u4E0B" : "\u4E0A"), r.slot, [...new Set(r.logs.map((l) => l.batter))].map(person).join(" \u2192 "), r.complete ? "\u5DF2\u5B8C\u6210" : "\u672A\u5B8C\u6210", r.logs.at(-1).summary, r.startedAt || "", r.endedAt || "", r.logs.filter((l) => l.throwingPath).map((l) => l.throwingPath + " \xB7 " + throwingPathLabel(l.throwingPath)).join("\uFF1B"), r.logs.filter((l) => l.kind === "contact").map((l) => l.location || "").join("\uFF1B"), r.logs.filter((l) => l.kind === "contact").map((l) => trajectories[l.trajectory] || "").join("\uFF1B"), r.logs.filter((l) => l.kind === "contact").map((l) => {
+      var _a;
+      return contactText({ ...l, location: null, trajectory: null, result: l.handlingResult, scoringResult: l.result, hitBases: (_a = l.play) == null ? void 0 : _a.hitBases });
+    }).join("\uFF1B"), r.logs.filter((l) => l.handlingFielder && !l.awardBases).map((l) => person(l.handlingFielder)).join("\uFF1B")])] }, { name: "\u6253\u5E2D\u5185\u6295\u7403\u4E0E\u8DD1\u5792", rows: [["\u6253\u5E2D", "\u7403\u5E8F/\u4E8B\u4EF6\u5E8F", "\u6295\u624B", "\u6253\u8005", "\u6295\u7403 / \u5224\u7F5A", "\u7ED3\u679C", "\u8DD1\u8005\u53CA\u7EDF\u8BA1", "\u65F6\u95F4"], ...records.flatMap((r, i) => r.logs.map((l, j) => [i + 1, j + 1, person(l.pitcher), person(l.batter), pitchLabel(l.kind), l.summary, resultLines(l, person).join("\uFF1B"), l.time || ""]))] }];
   }
   function lineupRows(g, person) {
     const teams = g.teams.map((t) => ({ ...t, lineup: t.lineup.map((p) => ({ ...p })) })), rows = [];
-    teams.forEach((t) => t.lineup.forEach((p, i) => rows.push([t.name, i + 1, person(p.id), p.pos, "\u9996\u53D1"])));
+    teams.forEach((t) => {
+      t.lineup.forEach((p, i) => rows.push([t.name, i + 1, person(p.id), p.pos, "\u9996\u53D1"]));
+      if (t.pitcherId) rows.push([t.name, "", person(t.pitcherId), "\u6295\u624B", "\u5148\u53D1\uFF08\u4E0D\u5360\u6253\u5E8F\uFF09"]);
+    });
     for (const e of g.events) {
       if (e.type === "sub") {
         const t = teams[e.team];
@@ -1427,6 +1494,11 @@
           p.id = e.id;
           rows.push([t.name, e.index + 1, person(p.id), p.pos, "\u66FF\u8865"]);
         }
+      }
+      if (e.type === "pitchingSub") {
+        const t = teams[e.team];
+        t.pitcherId = e.id;
+        rows.push([t.name, "", person(e.id), "\u6295\u624B", "\u66FF\u8865\uFF08\u4E0D\u5360\u6253\u5E8F\uFF09"]);
       }
       if (e.kind === "eject" && e.replacementId) {
         for (const t of teams) {
@@ -1441,7 +1513,7 @@
     return rows;
   }
   function substitutionRows(g, person) {
-    return replay(g).substitutions.map((r) => [r.time || "", r.inning + " \u5C40" + (r.side ? "\u4E0B" : "\u4E0A"), g.teams[r.team].name, r.kind, "\u7B2C " + r.slot + " \u68D2" + (r.otherSlot ? " \u2194 \u7B2C " + r.otherSlot + " \u68D2" : ""), person(r.outId), person(r.inId || r.otherId), r.otherPosition ? r.position + " \u2194 " + r.otherPosition : r.position, "B " + r.balls + " / S " + r.strikes + (r.base ? " \xB7 " + r.base + " \u5792" : "")]);
+    return replay(g).substitutions.map((r) => [r.time || "", r.inning + " \u5C40" + (r.side ? "\u4E0B" : "\u4E0A"), g.teams[r.team].name, r.kind, r.slot ? "\u7B2C " + r.slot + " \u68D2" + (r.otherSlot ? " \u2194 \u7B2C " + r.otherSlot + " \u68D2" : "") : "\u4E0D\u5360\u6253\u5E8F", person(r.outId), person(r.inId || r.otherId), r.otherPosition ? r.position + " \u2194 " + r.otherPosition : r.position, "B " + r.balls + " / S " + r.strikes + (r.base ? " \xB7 " + r.base + " \u5792" : "")]);
   }
 
   // app/src/main/assets/web/match-ui.js
@@ -1491,7 +1563,7 @@
       return '<div class="score-person"><small>' + label + '</small><b title="' + esc2(name2(id)) + '">' + esc2(name2(id)) + "</b><span>AVG " + (((_a2 = career[id]) == null ? void 0 : _a2.AVG) || 0).toFixed(3) + '</span><span title="' + esc2(batting2(id)) + '">' + esc2(batting2(id)) + "</span></div>";
     };
     const ps = rates(s.stats[p], g.sport), cards = '<div class="score-players">' + batterCard(b, "\u5F53\u524D\u6253\u8005") + batterCard(next, "\u4E0B\u4E00\u4F4D\u6253\u8005") + '<div class="score-person"><small>\u6295\u624B</small><b title="' + esc2(name2(p)) + '">' + esc2(name2(p)) + "</b><span>P-S " + ps["P-S"] + "</span><span>ERA " + (((_a = career[p]) == null ? void 0 : _a.ERA) || 0).toFixed(2) + "</span></div></div>";
-    return score(s, g.ended, esc2, cards) + '<div class="live-field"><div class="field-center">' + defenseField(s, ctx) + "</div></div>" + (s.halfEnded ? '<div class="half-actions"><span>\u4E09\u51FA\u5C40 \xB7 \u534A\u5C40\u7ED3\u675F</span><div class="row">' + btn2("\u5F00\u542F\u4E0B\u4E2A\u534A\u5C40", "half", "", "primary") + btn2("\u7ED3\u675F\u6BD4\u8D5B", "end", "", "danger") + "</div></div>" : '<div class="pitch-actions">' + btn2("B<small>\u574F\u7403</small>", "pitch", 'data-kind="ball"') + btn2("S<small>\u597D\u7403</small>", "pitch", 'data-kind="strike"') + btn2("Foul<small>\u754C\u5916</small>", "pitch", 'data-kind="foul"') + btn2("Fair<small>\u754C\u5185</small>", "contact", "", "primary") + '</div><div class="special-entry">' + btn2("\u88C1\u5224\u5224\u7F5A", "ruling") + btn2("\u7279\u6B8A\u60C5\u51B5", "specialMenu") + "</div>") + '<div class="record-tools">' + btn2("\u64A4\u9500\u8BB0\u5F55", "undo", canUndo(g) ? "" : "disabled", "ghost") + btn2("\u9010\u6253\u5E2D\u8BB0\u5F55", "showLog", "", "ghost") + '<div class="sub-tools">' + btn2("\u5B88\u5907\u6362\u4EBA", "sub", "", "ghost") + btn2("\u8FDB\u653B\u6362\u4EBA", "offenseSub", "", "ghost") + '</div></div><div class="last-play">' + esc2(((_b = s.log.at(-1)) == null ? void 0 : _b.summary) || "\u51C6\u5907\u5C31\u7EEA\uFF0C\u5F00\u59CB\u8BB0\u5F55\u5F53\u524D\u6253\u5E2D") + "</div>";
+    return score(s, g.ended, esc2, cards) + '<div class="live-field"><div class="field-center">' + defenseField(s, ctx) + "</div></div>" + (s.halfEnded ? '<div class="half-actions"><span>\u4E09\u51FA\u5C40 \xB7 \u534A\u5C40\u7ED3\u675F</span><div class="row">' + btn2("\u5F00\u542F\u4E0B\u4E2A\u534A\u5C40", "half", "", "primary") + btn2("\u7ED3\u675F\u6BD4\u8D5B", "end", "", "danger") + "</div></div>" : '<div class="pitch-actions">' + btn2("B<small>\u574F\u7403</small>", "pitch", 'data-kind="ball"') + btn2("S<small>\u597D\u7403</small>", "pitch", 'data-kind="strike"') + btn2("Foul<small>\u754C\u5916</small>", "pitch", 'data-kind="foul"') + btn2("Fair<small>\u754C\u5185</small>", "contact", "", "primary") + '</div><div class="special-entry">' + btn2("\u88C1\u5224\u5224\u7F5A", "ruling") + btn2("\u7279\u6B8A\u60C5\u51B5", "specialMenu") + "</div>") + '<div class="record-tools">' + btn2("\u64A4\u9500\u8BB0\u5F55", "undo", canUndo(g) ? "" : "disabled", "ghost") + btn2("\u9010\u6253\u5E2D\u8BB0\u5F55", "showLog", "", "ghost") + '<div class="sub-tools">' + (s.teams[1 - s.side].pitcherId ? btn2("\u6362\u6295", "pitchingSub", "", "ghost") : "") + btn2("\u5B88\u5907\u6362\u4EBA", "sub", "", "ghost") + btn2("\u8FDB\u653B\u6362\u4EBA", "offenseSub", "", "ghost") + '</div></div><div class="last-play">' + esc2(((_b = s.log.at(-1)) == null ? void 0 : _b.summary) || "\u51C6\u5907\u5C31\u7EEA\uFF0C\u5F00\u59CB\u8BB0\u5F55\u5F53\u524D\u6253\u5E2D") + "</div>";
   }
   function playDialog(g, ctx) {
     var _a;
@@ -1524,7 +1596,7 @@
   function defenseField(s, ctx) {
     const positions2 = { "\u5DE6\u5916\u91CE": [16, 17], "\u4E2D\u5916\u91CE": [50, 2], "\u53F3\u5916\u91CE": [84, 17], "\u81EA\u7531\u4EBA": [84, 34], "\u6E38\u51FB\u624B": [16, 34], "\u4E8C\u5792\u624B": [50, 34], "\u6295\u624B": [25, 90], "\u4E09\u5792\u624B": [16, 59], "\u4E00\u5792\u624B": [84, 59], "\u6355\u624B": [75, 90] };
     return `<div class="defense-field"><svg viewBox="0 0 200 160" role="img" aria-label="\u5185\u91CE\u5792\u5305\uFF0C\u7EA2\u8272\u8868\u793A\u6709\u4EBA"><path d="M100 140L140 100L100 60L60 100Z" fill="#927650" stroke="#c5ae85" stroke-width="2"/>${[[140, 100, s.bases[0]], [100, 60, s.bases[1]], [60, 100, s.bases[2]]].map(([x, y, r]) => `<rect x="${x - 15}" y="${y - 15}" width="30" height="30" rx="2" transform="rotate(45 ${x} ${y})" fill="${r ? "#ff203f" : "#655137"}" stroke="white" stroke-width="4"/>`).join("")}<path d="M95 136H105V142L100 147L95 142Z" fill="white"/></svg>${Object.entries(positions2).filter(([pos]) => pos !== "\u81EA\u7531\u4EBA" || ctx.sport === "softball").map(([pos, xy]) => {
-      const p = s.teams[1 - s.side].lineup.find((p2) => p2.pos === pos), player = p ? ctx.player(p.id) : null, label = p ? ctx.name(p.id) + ((player == null ? void 0 : player.number) ? " #" + player.number : "") : "\u2014";
+      const team = s.teams[1 - s.side], p = team.lineup.find((p2) => p2.pos === pos) || (pos === "\u6295\u624B" && team.pitcherId ? { id: team.pitcherId, pos } : null), player = p ? ctx.player(p.id) : null, label = p ? ctx.name(p.id) + ((player == null ? void 0 : player.number) ? " #" + player.number : "") : "\u2014";
       return `<div class="defender-label" style="left:${xy[0]}%;top:${xy[1]}%" title="${ctx.esc(pos + " \xB7 " + label)}">${ctx.esc(label)}</div>`;
     }).join("")}</div>`;
   }
@@ -1726,11 +1798,14 @@
     const add2 = (id) => {
       if (id) set.add(id);
     };
-    g.teams.forEach((t) => t.lineup.forEach((p) => add2(p.id)));
+    g.teams.forEach((t) => {
+      t.lineup.forEach((p) => add2(p.id));
+      add2(t.pitcherId);
+    });
     add2(g.scorerId);
     add2(g.umpireId);
     for (const e of g.events) {
-      if (e.type === "sub" && e.swap === void 0) add2(e.id);
+      if (e.type === "sub" && e.swap === void 0 || e.type === "pitchingSub") add2(e.id);
       for (const k of ["pitcher", "fielder", "putout", "errorFielder", "thirdOutId", "runnerId", "personId", "replacementId", "foulErrorFielder"]) add2(e[k]);
       for (const a of e.actions || []) {
         add2(a.id);
@@ -1738,6 +1813,7 @@
         add2(a.errorFielder);
         add2(a.assist);
       }
+      for (const credit of e.fieldingCredits || []) add2(credit.id);
     }
     return set;
   }
@@ -1770,7 +1846,7 @@
       }
       if (!["baseball", "softball"].includes(g.sport) || !Array.isArray(g.teams) || g.teams.length !== 2 || !Array.isArray(g.events) || g.events.length > 1e5) throw Error("\u6BD4\u8D5B\u7ED3\u6784\u65E0\u6548");
       for (const t of g.teams) if (typeof t.name !== "string" || !Array.isArray(t.lineup) || t.lineup.length < 2 || t.lineup.some((p) => !POSITIONS.includes(p.pos))) throw Error("\u7403\u961F\u9635\u5BB9\u65E0\u6548");
-      for (const e of g.events) if (!["pitch", "sub", "half", "ruling", "special"].includes(e.type)) throw Error("\u672A\u77E5\u6BD4\u8D5B\u4E8B\u4EF6");
+      for (const e of g.events) if (!["pitch", "sub", "pitchingSub", "half", "ruling", "special"].includes(e.type)) throw Error("\u672A\u77E5\u6BD4\u8D5B\u4E8B\u4EF6");
       for (const id of refs(g)) {
         if (map.has(id)) continue;
         const p = incoming.get(id);
@@ -1798,11 +1874,14 @@
       const remap = (o, k) => {
         if (o[k]) o[k] = map.get(o[k]);
       };
-      for (const t of g.teams) for (const p of t.lineup) remap(p, "id");
+      for (const t of g.teams) {
+        for (const p of t.lineup) remap(p, "id");
+        remap(t, "pitcherId");
+      }
       remap(g, "scorerId");
       remap(g, "umpireId");
       for (const e of g.events) {
-        if (e.type === "sub" && e.swap === void 0) remap(e, "id");
+        if (e.type === "sub" && e.swap === void 0 || e.type === "pitchingSub") remap(e, "id");
         for (const k of ["pitcher", "fielder", "putout", "errorFielder", "thirdOutId", "runnerId", "personId", "replacementId", "foulErrorFielder"]) remap(e, k);
         for (const a of e.actions || []) {
           remap(a, "id");
@@ -1810,8 +1889,9 @@
           remap(a, "errorFielder");
           remap(a, "assist");
         }
+        for (const credit of e.fieldingCredits || []) remap(credit, "id");
       }
-      const lineup = g.teams.flatMap((t) => t.lineup.map((p) => p.id));
+      const lineup = g.teams.flatMap((t) => [...t.lineup.map((p) => p.id), t.pitcherId].filter(Boolean));
       if (new Set(lineup).size !== lineup.length) throw Error("\u540C\u540D\u6620\u5C04\u5BFC\u81F4\u9635\u5BB9\u91CD\u590D\uFF0C\u8BF7\u6838\u5BF9\u7403\u5458\u59D3\u540D");
       g.id = uid();
       g.draft = null;
@@ -1945,7 +2025,7 @@
     return sheets;
   }
   function teamIds(g, team) {
-    return [.../* @__PURE__ */ new Set([...g.teams[team].lineup.map((p) => p.id), ...g.events.filter((e) => e.type === "sub" && e.team === team && e.swap === void 0).map((e) => e.id), ...g.events.filter((e) => e.type === "ruling" && e.kind === "eject" && e.team === team && e.replacementId).map((e) => e.replacementId)])];
+    return [...new Set([...g.teams[team].lineup.map((p) => p.id), g.teams[team].pitcherId, ...g.events.filter((e) => e.type === "sub" && e.team === team && e.swap === void 0).map((e) => e.id), ...g.events.filter((e) => e.type === "pitchingSub" && e.team === team).map((e) => e.id), ...g.events.filter((e) => e.type === "ruling" && e.kind === "eject" && e.team === team && e.replacementId).map((e) => e.replacementId), ...g.events.filter((e) => e.pitchingTeam === team && e.pitcher).map((e) => e.pitcher)].filter(Boolean))];
   }
 
   // app/src/main/assets/web/season-ui.js
@@ -2225,25 +2305,30 @@
       window.scrollTo(0, pageScroll);
     }
   }
+  function setupPitcherPicker(d, t, team) {
+    if (d.sport !== "baseball" || !t.lineup.some((p) => p.pos === "\u6307\u5B9A\u6253\u51FB DH")) return "";
+    const occupied = new Set(d.teams.flatMap((x) => x.lineup.map((p) => p.id)).concat(d.teams.map((x) => x.pitcherId).filter(Boolean)));
+    return `<label>\u672A\u5217\u5165\u6253\u5E8F\u7684\u6295\u624B<select data-pitcher-team="${team}"><option value="">\u9009\u62E9\u6295\u624B</option>${db.players.filter((p) => !p.deleted && (!occupied.has(p.id) || p.id === t.pitcherId)).map((p) => `<option value="${esc(p.id)}" ${p.id === t.pitcherId ? "selected" : ""}>${esc(p.name)} #${esc(p.number || "\u2014")}</option>`).join("")}</select></label>`;
+  }
   function setup() {
     const d = db.setup;
     if (!d) {
       page = db.active ? "game" : "home";
       return db.active ? record() : home();
     }
-    return header("\u7EC4\u961F \xB7 " + sportName(d.sport)) + (d.sport === "softball" ? '<p class="muted">\u589E\u989D\u7403\u5458\uFF1A\u52A0\u5165\u7403\u5458\u540E\u9009\u62E9\u589E\u989D\u7403\u5458\uFF0C\u53C2\u4E0E\u6253\u5E8F\u3001\u4E0D\u5360\u5B88\u5907\u4F4D\u7F6E\u3002\u5B88\u5907\u6EE1\u5458\u540E\u65B0\u589E\u7403\u5458\u81EA\u52A8\u8BBE\u4E3A\u589E\u989D\u7403\u5458\u3002</p>' : "") + officialFields(d, db.players, esc) + '<section class="card"><h3>\u6BD4\u8D5B\u73AF\u5883\uFF08\u53EF\u9009\uFF09</h3>' + [["temperature", "\u6E29\u5EA6\uFF08\u2103\uFF09"], ["weather", "\u5929\u6C14"], ["location", "\u5730\u70B9"]].map(([key, label]) => "<label>" + label + '<input data-environment="' + key + '" maxlength="100" value="' + esc(d[key] || "") + '" placeholder="\u53EF\u4E0D\u586B\u5199"></label>').join("") + '</section><p class="muted">\u6309\u4F4F \u2261 \u62D6\u52A8\u6253\u5E8F \xB7 L \u5DE6\u6253 / R \u53F3\u6253 / S \u5DE6\u53F3\u5F00\u5F13</p>' + d.teams.map(
+    return header("\u7EC4\u961F \xB7 " + sportName(d.sport)) + (d.sport === "softball" ? '<p class="muted">\u589E\u989D\u7403\u5458 EP\uFF1A\u53C2\u4E0E\u6253\u5E8F\u3001\u4E0D\u5360\u5B88\u5907\u4F4D\u7F6E\uFF0C\u53EF\u52A0\u5165\u591A\u4F4D\uFF1B\u5B88\u5907\u6EE1\u5458\u540E\u65B0\u589E\u7403\u5458\u81EA\u52A8\u8BBE\u4E3A EP\u3002</p>' : '<p class="muted">\u6307\u5B9A\u6253\u51FB DH \u53C2\u4E0E\u6253\u5E8F\u3001\u4E0D\u5B88\u5907\u3002\u4F7F\u7528 DH \u65F6\uFF0C\u8BF7\u53E6\u9009\u4E00\u4F4D\u4E0D\u5360\u6253\u5E8F\u7684\u6295\u624B\u3002</p>') + officialFields(d, db.players, esc) + '<section class="card"><h3>\u6BD4\u8D5B\u73AF\u5883\uFF08\u53EF\u9009\uFF09</h3>' + [["temperature", "\u6E29\u5EA6\uFF08\u2103\uFF09"], ["weather", "\u5929\u6C14"], ["location", "\u5730\u70B9"]].map(([key, label]) => "<label>" + label + '<input data-environment="' + key + '" maxlength="100" value="' + esc(d[key] || "") + '" placeholder="\u53EF\u4E0D\u586B\u5199"></label>').join("") + '</section><p class="muted">\u6309\u4F4F \u2261 \u62D6\u52A8\u6253\u5E8F \xB7 L \u5DE6\u6253 / R \u53F3\u6253 / S \u5DE6\u53F3\u5F00\u5F13</p>' + d.teams.map(
       (t, i) => `<section class="card compact-team"><div class="row"><b class="fit">${i ? "\u4E3B\u961F" : "\u5BA2\u961F"}</b><input aria-label="${i ? "\u4E3B" : "\u5BA2"}\u961F\u540D\u79F0" data-team-name="${i}" value="${esc(t.name)}" maxlength="30"></div><div data-lineup="${i}">${t.lineup.map(
         (p, j) => {
           var _a;
           return `<div class="lineup" data-team="${i}" data-index="${j}"><div class="handle" data-drag="${i}:${j}" aria-label="\u62D6\u52A8\u6253\u5E8F">\u2261</div><div class="clip"><b>${j + 1}. ${esc(name(p.id))}</b> <span class="hand">${((_a = db.players.find((x) => x.id === p.id)) == null ? void 0 : _a.bats) || "\u2014"}</span></div><select aria-label="${esc(name(p.id))}\u5B88\u5907\u4F4D\u7F6E" data-position="${i}:${j}">${lineupPositions(d.sport).map(
-            (pos) => `<option ${p.pos === pos ? "selected" : ""}>${pos}</option>`
+            (pos) => `<option value="${esc(pos)}" ${p.pos === pos ? "selected" : ""}>${pos === "\u589E\u989D\u7403\u5458" ? "\u589E\u989D\u7403\u5458 EP" : pos}</option>`
           ).join(
             ""
           )}</select>${btn("\xD7", "removeLine", `data-team="${i}" data-index="${j}"`, "small")}</div>`;
         }
       ).join(
         ""
-      )}</div>${btn("\uFF0B \u641C\u7D22\u5E76\u52A0\u5165\u7403\u5458", "pickPlayer", `data-team="${i}"`, "ghost wide")}</section>`
+      )}</div>${setupPitcherPicker(d, t, i)}${btn("\uFF0B \u641C\u7D22\u5E76\u52A0\u5165\u7403\u5458", "pickPlayer", `data-team="${i}"`, "ghost wide")}</section>`
     ).join("") + '<div class="row">' + btn("\u4EA4\u6362\u4E3B\u5BA2\u961F", "swapTeams") + btn("\u8FDB\u5165\u6BD4\u8D5B", "start", "", "primary") + "</div>";
   }
   function context(g) {
@@ -2296,6 +2381,10 @@
       dialog(subPanel(replay(g)));
       return;
     }
+    if (panel === "pitcher") {
+      dialog(pitcherPanel(replay(g)));
+      return;
+    }
     if (g.pendingPitch) {
       dialog(resultPanel(g, context(g)));
       $("dialog").addEventListener("cancel", (e) => e.preventDefault());
@@ -2330,7 +2419,7 @@
     const input = $("#rosterSearch");
     const refresh = () => {
       $("#rosterOptions").innerHTML = db.players.filter(
-        (p) => !p.deleted && (role || !db.setup.teams.some((t) => t.lineup.some((x) => x.id === p.id))) && p.name.toLocaleLowerCase().includes(input.value.trim().toLocaleLowerCase())
+        (p) => !p.deleted && (role || !db.setup.teams.some((t) => t.pitcherId === p.id || t.lineup.some((x) => x.id === p.id))) && p.name.toLocaleLowerCase().includes(input.value.trim().toLocaleLowerCase())
       ).map(
         (p) => btn(
           esc(p.name) + " \xB7 " + p.bats + "\u6253/" + p.throws + "\u6295",
@@ -2347,7 +2436,12 @@
   function subPanel(s) {
     const offense = subMode === "offense", team = offense ? s.side : 1 - s.side, lineup = s.teams[team].lineup;
     const slots = lineup.map((p, i) => ({ ...p, index: i })).filter((p) => !offense || p.id === batter(s) || s.bases.some((r) => (r == null ? void 0 : r.id) === p.id));
-    return '<div class="dialog-body"><h2>' + (offense ? "\u8FDB\u653B\u6362\u4EBA" : "\u5B88\u5907\u6362\u4EBA / \u6362\u4F4D") + "</h2><p>" + esc(s.teams[team].name) + '</p><p class="muted">' + (offense ? "\u4EE3\u6253\u7EE7\u627F\u7403\u6570\uFF1B\u4EE3\u8DD1\u7EE7\u627F\u5792\u4F4D\uFF0C\u540E\u7EED\u5F97\u5206\u8BB0\u7ED9\u4EE3\u8DD1\u3002\u66FF\u8865\u7EE7\u627F\u539F\u6253\u5E8F\u548C\u5B88\u5907\u4F4D\u7F6E\u3002" : "\u66FF\u8865\u7EE7\u627F\u539F\u6253\u5E8F\uFF1B\u6B64\u524D\u6570\u636E\u4FDD\u7559\u5728\u539F\u7403\u5458\u540D\u4E0B\u3002") + '</p><label>\u66FF\u6362\u573A\u4E0A\u7403\u5458</label><select id="subout">' + slots.map((p) => '<option value="' + p.index + '">' + (offense ? (p.id === batter(s) ? "\u5F53\u524D\u6253\u8005" : "\u5792\u4E0A\u8DD1\u8005") + " \xB7 " : "") + "\u7B2C " + (p.index + 1) + " \u68D2 \xB7 " + esc(name(p.id)) + "</option>").join("") + '</select><label>\u6362\u5165\u6CE8\u518C\u7403\u5458</label><select id="subin"><option value="">\u9009\u62E9\u66FF\u8865\u2026</option>' + db.players.filter((p) => !p.deleted && !s.ejected.includes(p.id) && !s.teams.some((t) => t.lineup.some((x) => x.id === p.id))).map((p) => '<option value="' + p.id + '">' + esc(p.name) + " #" + esc(p.number || "\u2014") + "</option>").join("") + "</select>" + (offense ? "" : '<label>\u6216\u4E0E\u573A\u4E0A\u7403\u5458\u4EA4\u6362\u5B88\u5907\u4F4D\u7F6E</label><select id="swapin">' + lineup.map((p, i) => '<option value="' + i + '">' + p.pos + " \xB7 " + esc(name(p.id)) + "</option>").join("") + "</select>") + '</div><div class="dialog-actions">' + btn("\u786E\u8BA4\u6362\u4EBA", "doSub", "", "primary wide") + (offense ? "" : btn("\u4EA4\u6362\u4F4D\u7F6E", "doSwap", "", "wide")) + btn("\u8FD4\u56DE\u8BB0\u5206", "subBack", "", "ghost wide") + "</div>";
+    return '<div class="dialog-body"><h2>' + (offense ? "\u8FDB\u653B\u6362\u4EBA" : "\u5B88\u5907\u6362\u4EBA / \u6362\u4F4D") + "</h2><p>" + esc(s.teams[team].name) + '</p><p class="muted">' + (offense ? "\u4EE3\u6253\u7EE7\u627F\u7403\u6570\uFF1B\u4EE3\u8DD1\u7EE7\u627F\u5792\u4F4D\uFF0C\u540E\u7EED\u5F97\u5206\u8BB0\u7ED9\u4EE3\u8DD1\u3002\u66FF\u8865\u7EE7\u627F\u539F\u6253\u5E8F\u548C\u5B88\u5907\u4F4D\u7F6E\u3002" : "\u66FF\u8865\u7EE7\u627F\u539F\u6253\u5E8F\uFF1B\u6B64\u524D\u6570\u636E\u4FDD\u7559\u5728\u539F\u7403\u5458\u540D\u4E0B\u3002") + '</p><label>\u66FF\u6362\u573A\u4E0A\u7403\u5458</label><select id="subout">' + slots.map((p) => '<option value="' + p.index + '">' + (offense ? (p.id === batter(s) ? "\u5F53\u524D\u6253\u8005" : "\u5792\u4E0A\u8DD1\u8005") + " \xB7 " : "") + "\u7B2C " + (p.index + 1) + " \u68D2 \xB7 " + esc(name(p.id)) + "</option>").join("") + '</select><label>\u6362\u5165\u6CE8\u518C\u7403\u5458</label><select id="subin"><option value="">\u9009\u62E9\u66FF\u8865\u2026</option>' + db.players.filter((p) => !p.deleted && !s.ejected.includes(p.id) && !s.teams.some((t) => t.pitcherId === p.id || t.lineup.some((x) => x.id === p.id))).map((p) => '<option value="' + p.id + '">' + esc(p.name) + " #" + esc(p.number || "\u2014") + "</option>").join("") + "</select>" + (offense ? "" : '<label>\u6216\u4E0E\u573A\u4E0A\u7403\u5458\u4EA4\u6362\u5B88\u5907\u4F4D\u7F6E</label><select id="swapin">' + lineup.map((p, i) => '<option value="' + i + '">' + p.pos + " \xB7 " + esc(name(p.id)) + "</option>").join("") + "</select>") + '</div><div class="dialog-actions">' + btn("\u786E\u8BA4\u6362\u4EBA", "doSub", "", "primary wide") + (offense ? "" : btn("\u4EA4\u6362\u4F4D\u7F6E", "doSwap", "", "wide")) + btn("\u8FD4\u56DE\u8BB0\u5206", "subBack", "", "ghost wide") + "</div>";
+  }
+  function pitcherPanel(s) {
+    const team = 1 - s.side, current2 = s.teams[team].pitcherId;
+    const options = db.players.filter((p) => !p.deleted && !s.ejected.includes(p.id) && !s.teams.some((t) => t.pitcherId === p.id || t.lineup.some((x) => x.id === p.id)));
+    return '<div class="dialog-body"><h2>\u6362\u6295</h2><p>' + esc(s.teams[team].name) + " \xB7 \u5F53\u524D\u6295\u624B\uFF1A" + esc(name(current2)) + '</p><label>\u6362\u5165\u6295\u624B<select id="pitcherIn"><option value="">\u9009\u62E9\u66FF\u8865\u2026</option>' + options.map((p) => '<option value="' + esc(p.id) + '">' + esc(p.name) + " #" + esc(p.number || "\u2014") + "</option>").join("") + '</select></label></div><div class="dialog-actions">' + btn("\u786E\u8BA4\u6362\u6295", "doPitchingSub", "", "primary wide") + btn("\u8FD4\u56DE\u8BB0\u5206", "subBack", "", "ghost wide") + "</div>";
   }
   function recent(s) {
     return '<div class="card">' + btn(
@@ -2446,7 +2540,7 @@
     if (b) action(b.dataset.action, b.dataset);
   });
   async function action(a, v = {}) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t;
     const snapshot = clone(db);
     try {
       const g = game();
@@ -2524,7 +2618,7 @@
           break;
         }
         case "deletePlayer":
-          if (g && replay(g).teams.some((t) => t.lineup.some((p) => p.id === v.id)))
+          if (g && replay(g).teams.some((t) => t.pitcherId === v.id || t.lineup.some((p) => p.id === v.id)))
             throw Error("\u8BE5\u7403\u5458\u6B63\u5728\u6BD4\u8D5B\u4E2D\uFF0C\u8BF7\u5148\u6362\u4E0B\u6216\u7ED3\u675F\u6BD4\u8D5B");
           if (!await ask("\u4ECE\u6CE8\u518C\u8868\u5220\u9664\u8BE5\u7403\u5458\uFF1F\u5386\u53F2\u6BD4\u8D5B\u4E2D\u7684\u59D3\u540D\u4E0E\u6570\u636E\u4FDD\u7559\u3002"))
             return;
@@ -2580,9 +2674,10 @@
         case "addLine": {
           const t = db.setup.teams[+v.team], id = v.id;
           if (!id) throw Error("\u8BF7\u5148\u9009\u62E9\u7403\u5458");
-          const available = lineupPositions(db.setup.sport).find((p) => !t.lineup.some((x) => x.pos === p)) || (db.setup.sport === "softball" ? "\u589E\u989D\u7403\u5458" : null);
+          const hasDH = t.lineup.some((p) => p.pos === "\u6307\u5B9A\u6253\u51FB DH");
+          const available = lineupPositions(db.setup.sport).find((p) => !(db.setup.sport === "baseball" && hasDH && p === "\u6295\u624B") && !t.lineup.some((x) => x.pos === p)) || (db.setup.sport === "softball" ? "\u589E\u989D\u7403\u5458" : null);
           if (!available) throw Error("\u573A\u4E0A\u4F4D\u7F6E\u5DF2\u6EE1");
-          if (db.setup.teams.some((t2) => t2.lineup.some((p) => p.id === id)))
+          if (db.setup.teams.some((t2) => t2.pitcherId === id || t2.lineup.some((p) => p.id === id)))
             throw Error("\u8BE5\u7403\u5458\u5DF2\u5728\u961F\u4E2D");
           t.lineup.push({ id, pos: available });
           (_d = $("dialog")) == null ? void 0 : _d.close();
@@ -2613,8 +2708,15 @@
             if (t.lineup.length < 2) throw Error("\u6BCF\u961F\u81F3\u5C11\u52A0\u5165 2 \u4F4D\u7403\u5458");
             if (new Set(t.lineup.filter((p) => p.pos !== "\u589E\u989D\u7403\u5458").map((p) => p.pos)).size !== t.lineup.filter((p) => p.pos !== "\u589E\u989D\u7403\u5458").length)
               throw Error("\u540C\u4E00\u961F\u7684\u5B88\u5907\u4F4D\u7F6E\u4E0D\u80FD\u91CD\u590D");
-            if (!t.lineup.some((p) => p.pos === "\u6295\u624B"))
-              throw Error("\u4E24\u961F\u90FD\u9700\u8981\u6307\u5B9A\u6295\u624B");
+            const hasDH = db.setup.sport === "baseball" && t.lineup.some((p) => p.pos === "\u6307\u5B9A\u6253\u51FB DH");
+            const lineupPitcher = t.lineup.some((p) => p.pos === "\u6295\u624B");
+            if (hasDH) {
+              if (lineupPitcher) throw Error("\u4F7F\u7528 DH \u65F6\uFF0C\u6295\u624B\u4E0D\u80FD\u5360\u6253\u5E8F\u5E2D\u4F4D");
+              if (!t.pitcherId || db.setup.teams.some((x) => x.lineup.some((p) => p.id === t.pitcherId))) throw Error("\u4F7F\u7528 DH \u65F6\uFF0C\u8BF7\u9009\u62E9\u4E0D\u5360\u6253\u5E8F\u7684\u6295\u624B");
+            } else {
+              if (!lineupPitcher) throw Error("\u4E24\u961F\u90FD\u9700\u8981\u6307\u5B9A\u6295\u624B");
+              t.pitcherId = null;
+            }
             if (t.lineup.some((p) => {
               var _a2;
               return (_a2 = db.players.find((x) => x.id === p.id)) == null ? void 0 : _a2.deleted;
@@ -2813,13 +2915,14 @@
             d.selectedRunner = null;
             break;
           }
-          if (d.phase === "review" && !d.awardBases) {
+          if (d.phase === "review" && !d.awardBases && !d.homeRunType) {
             d.phase = "runners";
             break;
           }
           d.phase = "contact";
           d.actions = [];
           delete d.awardBases;
+          delete d.homeRunType;
           d.selectedRunner = null;
           break;
         }
@@ -2868,6 +2971,12 @@
           panel = "sub";
           sub = true;
           break;
+        case "pitchingSub":
+          if (g.draft || g.pendingPitch || g.specialDraft) throw Error("\u8BF7\u5148\u786E\u8BA4\u6216\u53D6\u6D88\u5F53\u524D\u672C\u7403\u8BB0\u5F55");
+          if (!replay(g).teams[1 - replay(g).side].pitcherId) throw Error("\u5F53\u524D\u7403\u961F\u6CA1\u6709\u72EC\u7ACB\u6295\u624B\u5E2D\u4F4D");
+          panel = "pitcher";
+          sub = true;
+          break;
         case "subBack":
           panel = null;
           (_q = $("dialog")) == null ? void 0 : _q.close();
@@ -2892,6 +3001,16 @@
           panel = null;
           (_r = $("dialog")) == null ? void 0 : _r.close();
           toast("\u6362\u4EBA / \u6362\u4F4D\u5DF2\u8BB0\u5F55");
+          break;
+        }
+        case "doPitchingSub": {
+          const s = replay(g), id = (_s = $("#pitcherIn")) == null ? void 0 : _s.value;
+          if (!id) throw Error("\u8BF7\u9009\u62E9\u6362\u5165\u6295\u624B");
+          updateGame(commit(g, { type: "pitchingSub", team: 1 - s.side, id }));
+          sub = false;
+          panel = null;
+          (_t = $("dialog")) == null ? void 0 : _t.close();
+          toast("\u6362\u6295\u5DF2\u8BB0\u5F55");
           break;
         }
         case "end":
@@ -2998,6 +3117,12 @@
       if (el.dataset.official) {
         db.setup[el.dataset.official] = el.value;
         save();
+        return;
+      }
+      if (el.dataset.pitcherTeam !== void 0) {
+        db.setup.teams[+el.dataset.pitcherTeam].pitcherId = el.value || null;
+        save();
+        render();
         return;
       }
       if (el.dataset.select) {
